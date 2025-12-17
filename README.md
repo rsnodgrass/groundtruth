@@ -36,27 +36,8 @@ Worse: **non-decisions masquerade as decisions.** Someone says "let's do X," eve
 ## How It Works
 
 ```mermaid
-flowchart TB
-    subgraph inputs["Dump anything text"]
-        A1["Meeting transcripts"]
-        A2["Slack exports"]
-        A3["Git commit logs"]
-        A4["PR review threads"]
-        A5["AI session logs"]
-        A6["Design docs"]
-    end
-
-    inputs --> process["groundtruth process ./"]
-
-    process --> outputs
-
-    subgraph outputs["Structured Decision XLSX"]
-        B1["Decisions — What was actually agreed"]
-        B2["Non-decisions — Parked, unresolved, false agreement"]
-        B3["Agreement status — Who agreed / hedged / stayed silent"]
-        B4["Significance — Critical 1 to Same Page 5"]
-        B5["Source refs — Back to original transcript"]
-    end
+flowchart LR
+    A["Transcripts, Slack,<br>Git logs, AI sessions"] --> B["groundtruth"] --> C["Decisions +<br>Non-decisions XLSX"]
 ```
 
 **You decide what to feed it. You decide how to use the output.**
