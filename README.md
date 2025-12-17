@@ -37,7 +37,10 @@ Worse: **non-decisions masquerade as decisions.** Someone says "let's do X," eve
 
 ```mermaid
 flowchart LR
-    A["Transcripts, Slack,<br>Git logs, AI sessions"] --> B["groundtruth"] --> C["Decisions +<br>Non-decisions XLSX"]
+    A["Transcripts, Slack,<br>Git logs, AI sessions"] -->|analyze| B{{"groundtruth"}} -->|extract| C[("Decisions XLSX")]
+    style A fill:#1e3a5f,color:#fff
+    style B fill:#ef476f,color:#fff
+    style C fill:#06d6a0,color:#000
 ```
 
 **You decide what to feed it. You decide how to use the output.**
@@ -147,12 +150,12 @@ If decision authority matters, mention it:
 
 ### Prerequisites
 
-1. **Python 3.10+** — Install via Homebrew if needed:
+1. **Python 3.14+** — Install via Homebrew if needed:
    ```bash
-   brew install python@3.12
+   brew install python@3.14
    ```
 
-2. **Claude Code** — Required for decision extraction. Install from https://claude.ai/code or:
+2. **Claude Code** — Recommended for decision extraction (if you use anything else you are on your own to figure out how to make this work!). Install from https://claude.ai/code or:
    ```bash
    # If you have npm installed
    npm install -g @anthropic-ai/claude-code
