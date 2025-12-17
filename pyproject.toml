@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "groundtruth"
+version = "0.1.0"
+description = "Extract and track decisions (and non-decisions) from meeting transcripts, AI sessions, and team discussions"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Ryan Snodgrass" }
+]
+keywords = ["meetings", "decisions", "transcripts", "tracking", "xlsx", "alignment", "claude"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "openpyxl>=3.1.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "litellm>=1.50.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+groundtruth = "groundtruth.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rsnodgrass/groundtruth"
+Documentation = "https://github.com/rsnodgrass/groundtruth#readme"
+Repository = "https://github.com/rsnodgrass/groundtruth"
+Issues = "https://github.com/rsnodgrass/groundtruth/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/groundtruth"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
