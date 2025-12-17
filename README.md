@@ -37,7 +37,7 @@ Worse: **non-decisions masquerade as decisions.** Someone says "let's do X," eve
 
 ```mermaid
 flowchart LR
-    A["Transcripts, Slack,<br>Git logs, AI sessions"] -->|analyze| B{{"groundtruth"}} -->|extract| C[("Decisions XLSX")]
+    A["Transcripts, Slack,<br>Git logs, AI sessions"] -->|analyze| B{{"groundtruth"}} -->|extract| C[("Decisions Excel")]
     style A fill:#1e3a5f,color:#fff
     style B fill:#ef476f,color:#fff
     style C fill:#06d6a0,color:#000
