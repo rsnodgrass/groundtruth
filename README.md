@@ -39,7 +39,7 @@ groundtruth process meetings/2025-12-15/
 
 ## Why This Matters Now
 
-Pre-2023, startups made 10-20 decisions per week. Now, with AI-assisted development, that's 10x higher. Architecture decisions happen mid-coding session. Product pivots emerge from midnight Slack threads.
+Pre-2023, teams made 10-20 decisions per week. Now, with AI-assisted development, that's 10x higher. Architecture decisions happen mid-coding session. Product pivots emerge from midnight Slack threads.
 
 **The fastest teams aren't those making the most decisions. They're the ones where everyone knows what was decided.**
 
@@ -51,6 +51,7 @@ Pre-2023, startups made 10-20 decisions per week. Now, with AI-assisted developm
 - **Non-decision tracking** — Capture what hasn't been decided, not just what has
 - **False agreement detection** — Identify when people nod but don't actually agree
 - **Significance-based rules** — Conservative agreement assessment for critical decisions
+- **Agent-readable CSV** — Coding agents can read CSV output to learn what's been decided before starting new tasks
 - **Bring your own LLM** — Works with Claude Code (recommended), Anthropic API, OpenAI, or LiteLLM
 - **[Decision Frameworks](docs/decision-frameworks.md)** — Define who must agree on what, with layered team → project → meeting rules
 
@@ -152,11 +153,7 @@ Key areas: agreement detection heuristics, transcript format support, visualizat
 
 ---
 
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/rsnodgrass/groundtruth/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/rsnodgrass/groundtruth/discussions)
-- **Examples**: [examples/](examples/)
+**No support provided.** This is an unsupported open-source project. Use at your own risk. Pull requests welcome.
 
 ---
 
