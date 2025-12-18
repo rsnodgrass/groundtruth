@@ -210,11 +210,6 @@ def main() -> None:
     multiple=True,
     help="Decision Framework file(s). Can specify multiple. Later ones override earlier.",
 )
-@click.option(
-    "--no-auto-detect",
-    is_flag=True,
-    help="Disable automatic participant detection from transcript",
-)
 def extract(
     transcript: Path,
     output: Path | None,
@@ -227,16 +222,14 @@ def extract(
     deciders: str | None,
     prompt: str | None,
     framework: tuple[Path, ...],
-    no_auto_detect: bool,
 ) -> None:
     """Extract decisions from a transcript using an LLM.
 
     By default uses Claude Code CLI. Supports any model via LiteLLM.
 
-    Deciders are auto-detected from the transcript unless:
+    Participants are detected dynamically during extraction unless:
     - Explicitly set via --deciders
     - Defined in a framework file
-    - Disabled with --no-auto-detect
 
     Examples:
 
@@ -279,11 +272,10 @@ def extract(
     console.print(f"[blue]Extracting decisions from:[/blue] {transcript}")
     console.print(f"[dim]Provider: {tracker_config.model_provider}[/dim]")
 
-    # extract decisions using JSON-based extraction (with auto-detection unless disabled)
+    # extract decisions using JSON-based extraction
     result = extract_decisions_from_transcript_json(
         transcript,
         tracker_config,
-        auto_detect_participants=not no_auto_detect,
     )
     # convert to CSV rows for output generation
     participant_names = tracker_config.participant_names or result.participants_detected
@@ -523,11 +515,6 @@ def validate(csv_file: Path, deciders: str) -> None:
     help="Decision Framework file(s). Can specify multiple (company, then meeting-specific).",
 )
 @click.option(
-    "--no-auto-detect",
-    is_flag=True,
-    help="Disable automatic participant detection from transcript",
-)
-@click.option(
     "--force",
     is_flag=True,
     help="Force regeneration, ignore cached results",
@@ -552,7 +539,6 @@ def process(
     pattern: str | None,
     from_csv: bool,
     framework: tuple[Path, ...],
-    no_auto_detect: bool,
     force: bool,
     dry_run: bool,
 ) -> None:
@@ -562,7 +548,7 @@ def process(
     processed (cached results used for unchanged files). Use --force to
     reprocess all files.
 
-    Deciders are auto-detected from transcripts unless explicitly set.
+    Participants are detected dynamically during extraction.
 
     Examples:
 
@@ -766,8 +752,7 @@ def process(
             else:
                 console.print(f"[blue]Processing {len(files_to_process)} files[/blue]")
 
-    # extract decisions from changed files using parallel JSON-based extraction
-    auto_detect = not bool(deciders)  # skip detection if deciders explicitly provided
+    # extract decisions from changed files using JSON-based extraction
     new_decisions: list[Decision] = []
     new_file_entries: dict[str, FileEntry] = {}
 
@@ -778,7 +763,7 @@ def process(
         for tf in files_to_process:
             console.print(f"  [dim]Extracting:[/dim] {tf.name}")
             result = extract_decisions_from_transcript_json(
-                tf, tracker_config, auto_detect_participants=auto_detect
+                tf, tracker_config
             )
             new_decisions.extend(result.decisions)
 
