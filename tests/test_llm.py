@@ -18,6 +18,7 @@ from groundtruth.llm import (
     LiteLLMProvider,
     Metrics,
     extract_decisions_from_transcript_json,
+    extract_text,
     get_provider,
     validate_decision,
 )
@@ -688,3 +689,96 @@ class TestValidateDecision:
 
         # no present participants, status unchanged
         assert result.status == "Agreed"
+
+
+class TestExtractText:
+    """Tests for extract_text function."""
+
+    def test_plain_text_file(self, tmp_path: Path) -> None:
+        """Test reading plain text files."""
+        txt_file = tmp_path / "transcript.txt"
+        txt_file.write_text("Hello world\nLine two")
+        assert extract_text(txt_file) == "Hello world\nLine two"
+
+    def test_markdown_file(self, tmp_path: Path) -> None:
+        """Test reading markdown files."""
+        md_file = tmp_path / "notes.md"
+        md_file.write_text("# Meeting Notes\n\n- Item 1\n- Item 2")
+        assert extract_text(md_file) == "# Meeting Notes\n\n- Item 1\n- Item 2"
+
+    def test_docx_file(self, tmp_path: Path) -> None:
+        """Test extracting text from DOCX files."""
+        from docx import Document
+
+        docx_file = tmp_path / "transcript.docx"
+        doc = Document()
+        doc.add_paragraph("First paragraph")
+        doc.add_paragraph("Second paragraph")
+        doc.save(docx_file)
+
+        result = extract_text(docx_file)
+        assert "First paragraph" in result
+        assert "Second paragraph" in result
+
+    def test_docx_skips_empty_paragraphs(self, tmp_path: Path) -> None:
+        """Test that empty paragraphs are skipped."""
+        from docx import Document
+
+        docx_file = tmp_path / "transcript.docx"
+        doc = Document()
+        doc.add_paragraph("Content")
+        doc.add_paragraph("")  # empty
+        doc.add_paragraph("   ")  # whitespace only
+        doc.add_paragraph("More content")
+        doc.save(docx_file)
+
+        result = extract_text(docx_file)
+        assert result == "Content\n\nMore content"
+
+    def test_docx_preserves_paragraph_separation(self, tmp_path: Path) -> None:
+        """Test that paragraphs are separated by double newlines."""
+        from docx import Document
+
+        docx_file = tmp_path / "transcript.docx"
+        doc = Document()
+        doc.add_paragraph("Para 1")
+        doc.add_paragraph("Para 2")
+        doc.add_paragraph("Para 3")
+        doc.save(docx_file)
+
+        result = extract_text(docx_file)
+        assert result == "Para 1\n\nPara 2\n\nPara 3"
+
+    def test_srt_file_reads_with_timestamps(self, tmp_path: Path) -> None:
+        """Test that SRT files are read as plain text with timestamps."""
+        srt_file = tmp_path / "transcript.srt"
+        srt_content = """1
+00:00:00,000 --> 00:00:05,000
+Hello everyone.
+
+2
+00:00:05,500 --> 00:00:10,000
+Let's start the meeting."""
+        srt_file.write_text(srt_content)
+
+        result = extract_text(srt_file)
+        # SRT files are read as-is, including timestamps
+        assert "00:00:00,000" in result
+        assert "Hello everyone." in result
+
+    def test_vtt_file_reads_with_timestamps(self, tmp_path: Path) -> None:
+        """Test that VTT files are read as plain text with timestamps."""
+        vtt_file = tmp_path / "transcript.vtt"
+        vtt_content = """WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+Hello everyone.
+
+00:00:05.500 --> 00:00:10.000
+Let's start the meeting."""
+        vtt_file.write_text(vtt_content)
+
+        result = extract_text(vtt_file)
+        # VTT files are read as-is, including timestamps
+        assert "WEBVTT" in result
+        assert "Hello everyone." in result

@@ -371,6 +371,38 @@ def get_provider(config: TrackerConfig) -> LLMProvider:
         return LiteLLMProvider(model=config.model)
 
 
+def extract_text(file_path: Path) -> str:
+    """Extract text content from a file based on its extension.
+
+    Supports plain text formats (txt, md, srt, vtt, json, rtf) and
+    binary formats (docx) that require special handling.
+
+    Args:
+        file_path: Path to the transcript file
+
+    Returns:
+        Text content of the file
+    """
+    suffix = file_path.suffix.lower()
+
+    if suffix == ".docx":
+        try:
+            from docx import Document
+        except ImportError as e:
+            raise ImportError(
+                "python-docx is required for DOCX support. "
+                "Install with: pip install python-docx"
+            ) from e
+
+        doc = Document(file_path)
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        return "\n\n".join(paragraphs)
+
+    # default: read as plain text (txt, md, srt, vtt, json, rtf)
+    with open(file_path, encoding="utf-8") as f:
+        return f.read()
+
+
 def extract_decisions_from_transcript_json(
     transcript_path: Path,
     config: TrackerConfig,
@@ -393,10 +425,9 @@ def extract_decisions_from_transcript_json(
     """
     file_start_time = time.time()
 
-    # read transcript
+    # read transcript (handles both plain text and binary formats like docx)
     read_start = time.time()
-    with open(transcript_path, encoding="utf-8") as f:
-        transcript = f.read()
+    transcript = extract_text(transcript_path)
     metrics.file_read_time += time.time() - read_start
     metrics.total_transcript_chars += len(transcript)
     logger.info(f"Read transcript: {transcript_path.name}, length={len(transcript)} chars")

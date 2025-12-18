@@ -28,6 +28,7 @@ TRANSCRIPT_EXTENSIONS = [
     ".md",    # markdown notes
     ".json",  # JSON transcripts (e.g., from APIs)
     ".rtf",   # rich text format
+    ".docx",  # Microsoft Word documents
 ]
 
 # files to ignore when scanning for transcripts (case-insensitive stem matching)
