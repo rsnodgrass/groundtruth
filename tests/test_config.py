@@ -12,6 +12,7 @@ from groundtruth.config import (
     TrackerConfig,
     _parse_markdown_participants,
     decisions_to_csv_rows,
+    get_agreement,
     get_default_config,
     get_json_schema_for_extraction,
     load_config,
@@ -188,8 +189,8 @@ class TestDecisionsToCSVRows:
         assert rows[3][0] == "Security"
         assert rows[3][1] == "3"
 
-    def test_missing_participant_defaults_to_no(self) -> None:
-        """Test that missing participant agreement defaults to 'No'."""
+    def test_missing_participant_defaults_to_not_present(self) -> None:
+        """Test that missing participant agreement defaults to 'Not Present'."""
         decision = Decision(
             category="Tech",
             significance=3,
@@ -210,8 +211,67 @@ class TestDecisionsToCSVRows:
 
         data_row = rows[1]
         assert data_row[alice_idx] == "Yes"
-        assert data_row[bob_idx] == "No"  # not in agreements dict
-        assert data_row[carol_idx] == "No"  # not in agreements dict
+        assert data_row[bob_idx] == "Not Present"  # not in agreements dict
+        assert data_row[carol_idx] == "Not Present"  # not in agreements dict
+
+    def test_first_name_agreements_with_full_name_participants(self) -> None:
+        """Test CSV generation handles first-name agreements with full-name participants."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test",
+            description="Test",
+            decision="Test",
+            agreements={"Ryan": "Yes", "Ajit": "Partial"},  # First names from LLM
+        )
+        # But participant list has full names from framework
+        rows = decisions_to_csv_rows([decision], ["Ryan Snodgrass", "Ajit Banerjee"])
+
+        # Should find matches by first name
+        header = rows[0]
+        ryan_idx = header.index("Ryan Snodgrass Agreed")
+        ajit_idx = header.index("Ajit Banerjee Agreed")
+
+        assert rows[1][ryan_idx] == "Yes"
+        assert rows[1][ajit_idx] == "Partial"
+
+
+class TestGetAgreement:
+    """Tests for get_agreement helper function."""
+
+    def test_exact_match(self) -> None:
+        """Test exact name match."""
+        agreements = {"Ryan Snodgrass": "Yes", "Ajit Banerjee": "Partial"}
+        assert get_agreement(agreements, "Ryan Snodgrass") == "Yes"
+        assert get_agreement(agreements, "Ajit Banerjee") == "Partial"
+
+    def test_first_name_match(self) -> None:
+        """Test first name fallback match."""
+        agreements = {"Ryan": "Yes", "Ajit": "Partial"}
+        assert get_agreement(agreements, "Ryan Snodgrass") == "Yes"
+        assert get_agreement(agreements, "Ajit Banerjee") == "Partial"
+
+    def test_exact_match_takes_precedence(self) -> None:
+        """Test that exact match is preferred over first name match."""
+        agreements = {"Ryan": "Partial", "Ryan Snodgrass": "Yes"}
+        assert get_agreement(agreements, "Ryan Snodgrass") == "Yes"
+
+    def test_missing_returns_not_present(self) -> None:
+        """Test missing participant returns 'Not Present'."""
+        agreements = {"Alice": "Yes"}
+        assert get_agreement(agreements, "Bob Smith") == "Not Present"
+
+    def test_custom_default(self) -> None:
+        """Test custom default value."""
+        agreements = {"Alice": "Yes"}
+        assert get_agreement(agreements, "Bob", default="Unknown") == "Unknown"
+
+    def test_single_name(self) -> None:
+        """Test single name (no space) works correctly."""
+        agreements = {"Alice": "Yes"}
+        assert get_agreement(agreements, "Alice") == "Yes"
+        assert get_agreement(agreements, "Bob") == "Not Present"
 
 
 class TestLoadConfig:

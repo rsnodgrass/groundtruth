@@ -104,6 +104,33 @@ def get_json_schema_for_extraction() -> dict:
     }
 
 
+def get_agreement(
+    agreements: dict[str, str], full_name: str, default: str = "Not Present"
+) -> str:
+    """Look up agreement value by full name or first name.
+
+    Handles case where framework has full names but LLM returns first names.
+
+    Args:
+        agreements: Dict mapping participant names to agreement values
+        full_name: The full name to look up (e.g., "Ryan Snodgrass")
+        default: Value to return if no match found
+
+    Returns:
+        Agreement value ("Yes", "Partial", "No", "Not Present")
+    """
+    # try exact match first
+    if full_name in agreements:
+        return agreements[full_name]
+
+    # fall back to first name match
+    first_name = full_name.split()[0]
+    if first_name in agreements:
+        return agreements[first_name]
+
+    return default
+
+
 def decisions_to_csv_rows(
     decisions: list[Decision],
     participant_names: list[str],
@@ -128,8 +155,8 @@ def decisions_to_csv_rows(
     sorted_decisions = sorted(decisions, key=lambda d: (d.category, d.significance))
 
     for d in sorted_decisions:
-        # build agreement values in order
-        agreement_values = [d.agreements.get(name, "No") for name in participant_names]
+        # build agreement values in order (flexible matching for first/full names)
+        agreement_values = [get_agreement(d.agreements, name) for name in participant_names]
 
         row = [
             d.category,
