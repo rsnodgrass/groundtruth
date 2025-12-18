@@ -180,6 +180,10 @@ class TrackerConfig(BaseModel):
     # participants
     participants: list[ParticipantConfig] = []
 
+    # flag to indicate participants were explicitly set from framework/config
+    # (prevents auto-detection from overriding them)
+    participants_from_framework: bool = False
+
     # categories (if empty, uses defaults)
     categories: list[CategoryConfig] = []
 
@@ -384,6 +388,7 @@ def merge_frameworks(
                                 participants.append(ParticipantConfig(**p))
                         if participants:
                             config.participants = participants
+                            config.participants_from_framework = True
 
                     # merge custom_prompt (append)
                     if "custom_prompt" in data and data["custom_prompt"]:
@@ -406,6 +411,7 @@ def merge_frameworks(
             md_participants = _parse_markdown_participants(content)
             if md_participants:
                 config.participants = md_participants
+                config.participants_from_framework = True
 
             if config.custom_prompt:
                 framework_text = f"# Framework: {path.name}\n{content}"

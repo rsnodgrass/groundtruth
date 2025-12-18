@@ -549,17 +549,12 @@ def ensure_participants(
     Returns:
         Config with participants populated (may be modified copy)
     """
-    # if participants are already set (not default), use them
-    if config.participants and len(config.participants) > 0:
-        # check if these look like explicit participants (not defaults)
-        # defaults have specific names like Ryan, Ajit, Milkana
-        default_names = {"Ryan", "Ajit", "Milkana"}
-        current_names = {p.name for p in config.participants}
-
-        # if not using defaults, participants were explicitly set
-        if current_names != default_names:
-            logger.info(f"Using explicitly configured participants: {list(current_names)}")
-            return config
+    # if participants were explicitly set from a framework/config file, use them
+    if config.participants_from_framework and config.participants:
+        logger.info(
+            f"Using participants from framework: {[p.name for p in config.participants]}"
+        )
+        return config
 
     # detect participants from transcript
     logger.info("No explicit participants configured, detecting from transcript...")

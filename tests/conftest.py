@@ -104,6 +104,7 @@ def sample_config(
     return TrackerConfig(
         custom_prompt="Test custom prompt",
         participants=sample_participants,
+        participants_from_framework=True,  # mark as explicitly configured
         categories=sample_categories,
         types=sample_types,
         agreement_rules=sample_agreement_rules,

@@ -445,6 +445,9 @@ More content here.
         assert "Ajit" in names
         assert "Milkana" in names
 
+        # flag should be set to indicate participants from framework
+        assert result.participants_from_framework is True
+
 
 class TestParseMarkdownParticipants:
     """Tests for _parse_markdown_participants function."""

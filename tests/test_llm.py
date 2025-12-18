@@ -657,7 +657,7 @@ class TestEnsureParticipants:
             result_config = ensure_participants("Test transcript", sample_config)
 
         assert result_config.participants == sample_config.participants
-        assert "explicitly configured" in caplog.text
+        assert "from framework" in caplog.text
 
     @patch("groundtruth.llm.detect_participants_from_transcript")
     def test_ensure_participants_detects_when_default(
