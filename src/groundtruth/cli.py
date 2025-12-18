@@ -25,7 +25,7 @@ def get_output_filename(
     input_path: Path,
     output_name: str | None,
     date_prefix: bool,
-    suffix: str = "-Groundtruth",
+    suffix: str = "-Decisions",
 ) -> str:
     """
     Generate output filename based on input and options.
@@ -44,8 +44,10 @@ def get_output_filename(
     else:
         # use input stem
         base = input_path.stem
-        # remove existing -Groundtruth suffix if present
-        if base.endswith("-Groundtruth"):
+        # remove existing -Decisions or -Groundtruth suffix if present
+        if base.endswith("-Decisions"):
+            base = base[:-10]
+        elif base.endswith("-Groundtruth"):
             base = base[:-12]
 
     # add suffix if not already present
@@ -74,7 +76,7 @@ def main() -> None:
 @click.option(
     "--output", "-o",
     type=click.Path(path_type=Path),
-    help="Output path (defaults to input filename with -Groundtruth suffix)",
+    help="Output path (defaults to input filename with -Decisions suffix)",
 )
 @click.option(
     "--output-name", "-n",
@@ -473,13 +475,14 @@ def process(
 
     if from_csv:
         # process existing CSV files
-        csv_files = list(folder.rglob("*-Groundtruth.csv"))
+        # support both new -Decisions and old -Groundtruth suffixes
+        csv_files = list(folder.rglob("*-Decisions.csv")) + list(folder.rglob("*-Groundtruth.csv"))
 
         if from_date or to_date:
             filtered = []
             for csv_file in csv_files:
                 try:
-                    date_str = csv_file.stem.replace("-Groundtruth", "")
+                    date_str = csv_file.stem.replace("-Decisions", "").replace("-Groundtruth", "")
                     file_date = datetime.strptime(date_str, "%Y-%m-%d")
                     if from_date and file_date < from_date:
                         continue
@@ -491,7 +494,7 @@ def process(
             csv_files = filtered
 
         if not csv_files:
-            console.print("[yellow]No Groundtruth CSV files found[/yellow]")
+            console.print("[yellow]No Decisions CSV files found[/yellow]")
             return
 
         console.print(f"[blue]Found {len(csv_files)} CSV file(s)[/blue]")

@@ -1,0 +1,68 @@
+# Default formatting configuration for Groundtruth XLSX output
+# Override any of these values by providing your own formatting config file
+
+colors:
+  # Header row
+  header:
+    background: "4472C4"
+    text: "FFFFFF"
+
+  # Significance column (blue gradient: critical -> minor)
+  significance:
+    "1":
+      background: "0B5394"  # vibrant blue
+      text: "FFFFFF"
+      bold: true
+    "2":
+      background: "3D85C6"  # strong blue
+      text: "FFFFFF"
+      bold: true
+    "3":
+      background: "6FA8DC"  # medium blue
+      text: "000000"
+      bold: false
+    "4":
+      background: "A4C2F4"  # light blue
+      text: "000000"
+      bold: false
+    "5":
+      background: "D9E6F7"  # near white
+      text: "000000"
+      bold: false
+
+  # Status column (traffic light: green/yellow/red)
+  status:
+    agreed:
+      background: "C6EFCE"  # light green
+      text: "006100"
+    needs-clarification:
+      background: "FFEB9C"  # light yellow
+      text: "9C5700"
+    unresolved:
+      background: "FFC7CE"  # light red
+      text: "9C0006"
+
+  # Agreement columns (Yes/Partial/No)
+  agreement:
+    "yes":
+      background: "C6EFCE"  # light green
+      text: "006100"
+    partial:
+      background: "FFEB9C"  # light yellow
+      text: "9C5700"
+    "no":
+      background: "FFC7CE"  # light red
+      text: "9C0006"
+
+# Column widths (in Excel units, ~7 pixels per unit)
+column_widths:
+  category: 15
+  significance: 12
+  status: 18
+  title: 30
+  description: 50
+  decision: 40
+  agreement: 12  # per-person agreement columns
+  notes: 40
+  meeting_date: 12
+  meeting_reference: 25

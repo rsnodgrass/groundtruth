@@ -7,46 +7,17 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.worksheet.worksheet import Worksheet
 
+from groundtruth.formatting import (
+    get_agreement_styles,
+    get_header_styles,
+    get_significance_styles,
+    get_status_styles,
+    load_formatting_config,
+)
 from groundtruth.models import DEFAULT_PARTICIPANTS
-
-# Color schemes
-HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-HEADER_FONT = Font(bold=True, color="FFFFFF")
-
-# Significance colors (blue gradient: vibrant blue -> almost white)
-SIGNIFICANCE_COLORS = {
-    "1": PatternFill(start_color="0d47a1", end_color="0d47a1", fill_type="solid"),  # vibrant dark blue
-    "2": PatternFill(start_color="1976d2", end_color="1976d2", fill_type="solid"),  # medium-dark blue
-    "3": PatternFill(start_color="42a5f5", end_color="42a5f5", fill_type="solid"),  # medium blue
-    "4": PatternFill(start_color="90caf9", end_color="90caf9", fill_type="solid"),  # light blue
-    "5": PatternFill(start_color="e3f2fd", end_color="e3f2fd", fill_type="solid"),  # very light blue
-}
-
-# Significance font colors (white for dark backgrounds, black for light)
-SIGNIFICANCE_FONTS = {
-    "1": Font(bold=True, color="FFFFFF"),
-    "2": Font(bold=True, color="FFFFFF"),
-    "3": Font(bold=False, color="000000"),
-    "4": Font(bold=False, color="000000"),
-    "5": Font(bold=False, color="000000"),
-}
-
-# Status colors
-STATUS_COLORS = {
-    "Agreed": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-    "Needs Clarification": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-    "Unresolved": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-}
-
-# Agreement colors
-AGREEMENT_COLORS = {
-    "No": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-    "Partial": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-    "Yes": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-}
 
 # Standard styles
 WRAP_ALIGNMENT = Alignment(wrap_text=True, vertical="top")
@@ -116,14 +87,15 @@ def apply_cell_style(
     is_header: bool,
     col_config: dict[str, Any],
     participants: list[str],
+    styles: dict[str, Any],
 ) -> None:
     """Apply styling to a cell."""
     cell = ws.cell(row=row_idx, column=col_idx, value=value)
     cell.border = THIN_BORDER
 
     if is_header:
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
+        cell.font = styles["header_font"]
+        cell.fill = styles["header_fill"]
         cell.alignment = HEADER_ALIGNMENT
         return
 
@@ -131,19 +103,19 @@ def apply_cell_style(
     cell.alignment = CENTER_ALIGNMENT if col_config.get("center") else WRAP_ALIGNMENT
 
     # significance column (B = 2)
-    if col_idx == 2 and value in SIGNIFICANCE_COLORS:
-        cell.fill = SIGNIFICANCE_COLORS[value]
-        cell.font = SIGNIFICANCE_FONTS.get(value, Font())
+    if col_idx == 2 and value in styles["significance_fills"]:
+        cell.fill = styles["significance_fills"][value]
+        cell.font = styles["significance_fonts"].get(value, Font())
 
     # status column (C = 3)
-    if col_idx == 3 and value in STATUS_COLORS:
-        cell.fill = STATUS_COLORS[value]
+    if col_idx == 3 and value in styles["status_fills"]:
+        cell.fill = styles["status_fills"][value]
 
     # agreement columns (start at G = 7)
     agreement_start = 7
     agreement_end = agreement_start + len(participants)
-    if agreement_start <= col_idx < agreement_end and value in AGREEMENT_COLORS:
-        cell.fill = AGREEMENT_COLORS[value]
+    if agreement_start <= col_idx < agreement_end and value in styles["agreement_fills"]:
+        cell.fill = styles["agreement_fills"][value]
         if value in ["No", "Partial"]:
             cell.font = Font(bold=True)
 
@@ -152,59 +124,106 @@ def add_summary_sheet(
     wb: Workbook,
     rows: list[list[str]],
     participants: list[str],
+    file_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> None:
-    """Add summary sheet with meeting metadata."""
+    """Add summary sheet with input files and decision counts.
+
+    Args:
+        wb: Workbook to add sheet to
+        rows: Decision data rows including header
+        participants: List of participant names (global)
+        file_metadata: Optional dict mapping filename to metadata:
+            {filename: {"participants": [...], "deciders": [...]}}
+    """
     ws = wb.create_sheet(title="Summary")
 
     # title
-    ws["A1"] = "Meeting Summary"
+    ws["A1"] = "Decisions Summary"
     ws["A1"].font = Font(bold=True, size=16)
 
-    # extract unique meeting dates and references from data
-    meeting_dates: set[str] = set()
-    meeting_refs: set[str] = set()
     data_rows = rows[1:]  # skip header
 
-    # meeting date is in trailing columns after agreed columns
-    date_col_idx = 6 + len(participants)  # Notes=6+n, Date=7+n, Ref=8+n
-    ref_col_idx = date_col_idx + 1
+    # calculate column indices for meeting reference
+    ref_col_idx = 6 + len(participants) + 1  # Notes=6+n, Date=7+n, Ref=8+n
 
+    # group decisions by input file
+    file_decisions: dict[str, int] = {}
     for row in data_rows:
-        if len(row) > date_col_idx and row[date_col_idx]:
-            meeting_dates.add(row[date_col_idx])
         if len(row) > ref_col_idx and row[ref_col_idx]:
-            meeting_refs.add(row[ref_col_idx])
+            filename = row[ref_col_idx]
+            file_decisions[filename] = file_decisions.get(filename, 0) + 1
 
-    # participants section
-    ws["A3"] = "Participants"
+    # input files section with header row
+    ws["A3"] = "Input File"
     ws["A3"].font = Font(bold=True)
-    for i, participant in enumerate(participants):
-        ws[f"B{3 + i}"] = participant
+    ws["B3"] = "Decisions"
+    ws["B3"].font = Font(bold=True)
+    ws["C3"] = "Participants"
+    ws["C3"].font = Font(bold=True)
+    ws["D3"] = "Deciders"
+    ws["D3"].font = Font(bold=True)
 
-    row_num = 3 + len(participants) + 1
+    row_num = 4
+    for filename in sorted(file_decisions.keys()):
+        ws[f"A{row_num}"] = filename
+        ws[f"B{row_num}"] = file_decisions[filename]
 
-    # meeting dates section
-    ws[f"A{row_num}"] = "Meeting Dates"
-    ws[f"A{row_num}"].font = Font(bold=True)
-    for i, date in enumerate(sorted(meeting_dates)):
-        ws[f"B{row_num + i}"] = date
-    row_num += max(len(meeting_dates), 1) + 1
+        # add per-file metadata if available
+        if file_metadata and filename in file_metadata:
+            meta = file_metadata[filename]
+            if "participants" in meta:
+                ws[f"C{row_num}"] = ", ".join(meta["participants"])
+            if "deciders" in meta:
+                ws[f"D{row_num}"] = ", ".join(meta["deciders"])
+        row_num += 1
 
-    # transcript references section
-    ws[f"A{row_num}"] = "Transcript Files"
-    ws[f"A{row_num}"].font = Font(bold=True)
-    for i, ref in enumerate(sorted(meeting_refs)):
-        ws[f"B{row_num + i}"] = ref
-    row_num += max(len(meeting_refs), 1) + 1
+    row_num += 1
 
-    # decision count
+    # total decision count
     ws[f"A{row_num}"] = "Total Decisions"
     ws[f"A{row_num}"].font = Font(bold=True)
     ws[f"B{row_num}"] = len(data_rows)
 
     # set column widths
-    ws.column_dimensions["A"].width = 18
-    ws.column_dimensions["B"].width = 40
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 30
+    ws.column_dimensions["D"].width = 30
+
+
+def _parse_markdown_line(line: str) -> tuple[str, Font]:
+    """Parse a markdown line and return (text, font) for Excel."""
+    line = line.strip()
+
+    # H1: # Header
+    if line.startswith("# "):
+        return line[2:], Font(bold=True, size=14)
+
+    # H2: ## Header
+    if line.startswith("## "):
+        return line[3:], Font(bold=True, size=12)
+
+    # H3: ### Header
+    if line.startswith("### "):
+        return line[4:], Font(bold=True, size=11)
+
+    # Bold: **text** or __text__
+    if line.startswith("**") and line.endswith("**"):
+        return line[2:-2], Font(bold=True)
+    if line.startswith("__") and line.endswith("__"):
+        return line[2:-2], Font(bold=True)
+
+    # Italic: *text* or _text_
+    if line.startswith("*") and line.endswith("*") and not line.startswith("**"):
+        return line[1:-1], Font(italic=True)
+    if line.startswith("_") and line.endswith("_") and not line.startswith("__"):
+        return line[1:-1], Font(italic=True)
+
+    # Bullet point: - item or * item
+    if line.startswith("- ") or line.startswith("* "):
+        return "  " + line, Font()
+
+    return line, Font()
 
 
 def add_attribution_sheet(
@@ -216,10 +235,18 @@ def add_attribution_sheet(
     """Add attribution sheet to workbook."""
     ws = wb.create_sheet(title="Produced By")
 
-    # title
-    ws["A1"] = "Groundtruth"
-    ws["A1"].font = Font(bold=True, size=16)
+    # set wider columns for readability
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 60
 
+    # title - merged across columns
+    ws.merge_cells("A1:C1")
+    ws["A1"] = "Groundtruth"
+    ws["A1"].font = Font(bold=True, size=18)
+    ws["A1"].alignment = Alignment(horizontal="left")
+
+    # metadata section
     ws["A3"] = "Tool"
     ws["A3"].font = Font(bold=True)
     ws["B3"] = "groundtruth"
@@ -245,8 +272,9 @@ def add_attribution_sheet(
         ws[f"B{row}"] = user_email
         row += 1
 
-    # quick reference: significance levels and agreement standards
+    # quick reference section - merged header
     row += 2
+    ws.merge_cells(f"A{row}:C{row}")
     ws[f"A{row}"] = "Quick Reference: Significance & Agreement Standards"
     ws[f"A{row}"].font = Font(bold=True, size=14)
 
@@ -271,30 +299,36 @@ def add_attribution_sheet(
         row += 1
 
     row += 1
+    ws.merge_cells(f"A{row}:C{row}")
     ws[f"A{row}"] = "Agreement: Yes (explicit), Partial (hedged), No (silent/parked/disagreed)"
     ws[f"A{row}"].font = Font(italic=True)
 
-    # user's custom framework (overrides only)
+    # user's custom framework
     if decision_framework:
         row += 3
-        ws[f"A{row}"] = "Custom Decision Framework"
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"] = "Decision Framework"
         ws[f"A{row}"].font = Font(bold=True, size=14)
         row += 1
-        ws[f"A{row}"] = "User-provided customizations that guided extraction:"
-        ws[f"A{row}"].font = Font(italic=True)
+
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"] = "User-provided framework that guided extraction:"
+        ws[f"A{row}"].font = Font(italic=True, color="666666")
         row += 2
 
-        # write the decision framework text, handling multi-line content
+        # parse markdown and write framework content
         framework_lines = decision_framework.strip().split("\n")
         for line in framework_lines:
-            ws[f"A{row}"] = line
-            ws[f"A{row}"].alignment = Alignment(wrap_text=True)
-            row += 1
+            if not line.strip():
+                row += 1
+                continue
 
-    # set column widths
-    ws.column_dimensions["A"].width = 25
-    ws.column_dimensions["B"].width = 25
-    ws.column_dimensions["C"].width = 50
+            text, font = _parse_markdown_line(line)
+            ws.merge_cells(f"A{row}:C{row}")
+            ws[f"A{row}"] = text
+            ws[f"A{row}"].font = font
+            ws[f"A{row}"].alignment = Alignment(wrap_text=True, vertical="top")
+            row += 1
 
 
 def generate_xlsx(
@@ -304,6 +338,8 @@ def generate_xlsx(
     user_name: str | None = None,
     user_email: str | None = None,
     decision_framework: str | None = None,
+    format_config_path: Path | None = None,
+    file_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> int:
     """
     Generate formatted XLSX from decision data.
@@ -315,12 +351,33 @@ def generate_xlsx(
         user_name: Optional user name for attribution
         user_email: Optional user email for attribution
         decision_framework: Optional custom prompt that guided decision extraction
+        format_config_path: Optional path to formatting config YAML
+        file_metadata: Optional dict mapping filename to per-file metadata:
+            {filename: {"participants": [...], "deciders": [...]}}
 
     Returns:
         Number of decisions (excluding header)
     """
     if participants is None:
         participants = DEFAULT_PARTICIPANTS
+
+    # load formatting config (defaults + optional user overrides)
+    format_config = load_formatting_config(format_config_path)
+
+    # build styles from config
+    significance_fills, significance_fonts = get_significance_styles(format_config)
+    status_fills = get_status_styles(format_config)
+    agreement_fills = get_agreement_styles(format_config)
+    header_fill, header_font = get_header_styles(format_config)
+
+    styles = {
+        "significance_fills": significance_fills,
+        "significance_fonts": significance_fonts,
+        "status_fills": status_fills,
+        "agreement_fills": agreement_fills,
+        "header_fill": header_fill,
+        "header_font": header_font,
+    }
 
     # try to get user info from environment
     if user_name is None:
@@ -347,7 +404,7 @@ def generate_xlsx(
     ws = wb.active
     if ws is None:
         raise RuntimeError("Failed to create worksheet")
-    ws.title = "Groundtruth"
+    ws.title = "Decisions"
 
     # get column configuration
     col_config = get_column_config(participants)
@@ -362,7 +419,7 @@ def generate_xlsx(
         for col_idx, value in enumerate(row_data, 1):
             col_letter = chr(ord("A") + col_idx - 1)
             config = col_config.get(col_letter, {"center": False})
-            apply_cell_style(ws, row_idx, col_idx, value, is_header, config, participants)
+            apply_cell_style(ws, row_idx, col_idx, value, is_header, config, participants, styles)
 
     # freeze header and set row heights
     ws.freeze_panes = "A2"
@@ -371,7 +428,7 @@ def generate_xlsx(
         ws.row_dimensions[row_idx].height = 60
 
     # add summary sheet
-    add_summary_sheet(wb, sorted_rows, participants)
+    add_summary_sheet(wb, sorted_rows, participants, file_metadata)
 
     # add attribution sheet
     add_attribution_sheet(wb, user_name, user_email, decision_framework)
