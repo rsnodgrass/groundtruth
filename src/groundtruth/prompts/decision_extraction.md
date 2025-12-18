@@ -1,23 +1,28 @@
 Extract decisions from this meeting transcript and output as JSON.
 
-## What Constitutes a Decision
+## What Constitutes a Decision Point
 
-Only extract items where there was an EXPLICIT decision made. Look for:
-- Clear commitment language: "Let's do X", "We'll go with Y", "Agreed - we'll Z"
-- Action items with owners
-- Choices made between alternatives
-- Explicit agreements on approach, timing, or ownership
+Extract any topic where a decision was discussed, whether resolved or not.
 
-DO NOT extract:
-- Open discussions without resolution ("We should think about...")
-- Brainstorming without commitment ("Maybe we could...")
-- Information sharing ("FYI, the system currently does X")
-- Questions without answers
-- Tentative ideas ("What if we...?")
-- Status updates without decisions
-- Acknowledgments without commitments ("Yeah", "Okay", "I see")
+**Resolved decisions** (Status = "Agreed" if all explicitly confirm):
+- Clear commitment: "Let's do X", "We'll go with Y", "Agreed - we'll Z"
+- Action items with owners and explicit buy-in
+- Choices made between alternatives with group confirmation
 
-**When in doubt, DO NOT extract.** Fewer high-quality decisions > many low-quality ones.
+**Unresolved decision points** (Status = "Needs Clarification" or "Unresolved"):
+- Open discussions: "We should think about..." → decision="No decision reached"
+- One-sided proposals: "I think we should..." without group confirmation
+- Tentative ideas: "Maybe we could...", "What if we...?"
+- Preferences without commitment: "I prefer X" (one person Yes, others Partial)
+- Questions raised without answers
+
+**DO NOT extract** (these are not decision points):
+- Pure information sharing: "FYI, the system currently does X"
+- Status updates without any decision implications
+- Simple acknowledgments: "Yeah", "Okay", "I see"
+- Off-topic tangents unrelated to project decisions
+
+**Key principle:** Capture the decision POINT, then accurately reflect whether it was resolved.
 
 ## Participants
 {participants_text}
