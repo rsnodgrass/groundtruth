@@ -128,7 +128,7 @@ groundtruth process meetings/2025-12-15/
 
 ## Requirements
 
-- **Speaker attribution in transcripts** — Most transcription services ([Otter.ai](https://otter.ai/referrals/LL5QS7E8), Rev, Fireflies, Descript) provide this automatically
+- **Speaker attribution in transcripts** — Most transcription services ([Fireflies](https://app.fireflies.ai/login?referralCode=c6pFou0hDy), [Otter.ai](https://otter.ai/referrals/LL5QS7E8)) provide this automatically
 - **Claude Code** — Recommended for decision extraction (if you use anything else you are on your own to figure out how to make this work!). Install from https://claude.ai/code
 - **Python 3.12+** — Needed for actually running the actual Groundtruth tool
 
