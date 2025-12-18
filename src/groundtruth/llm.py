@@ -166,8 +166,9 @@ class ClaudeCodeProvider(LLMProvider):
         try:
             start_time = time.time()
             # use stdin to avoid CLI argument length limits
+            # use --output-format json to get consistent envelope format
             result = subprocess.run(
-                [self.claude_code_path, "--print"],
+                [self.claude_code_path, "--print", "--output-format", "json"],
                 input=prompt,
                 capture_output=True,
                 text=True,
@@ -305,17 +306,35 @@ class ClaudeCodeProvider(LLMProvider):
     def _parse_participant_response(self, content: str) -> list[ParticipantConfig]:
         """Parse JSON response from participant detection."""
         content = content.strip()
-
-        # remove markdown code blocks if present
-        if content.startswith("```json"):
-            content = content[7:]
-        elif content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
+        logger.debug(f"Raw participant response (first 300 chars): {content[:300]}")
 
         try:
-            data = json.loads(content.strip())
+            # Claude Code --output-format json wraps response in envelope
+            envelope = json.loads(content)
+
+            # extract the actual result string from envelope
+            if "result" in envelope and isinstance(envelope["result"], str):
+                inner_content = envelope["result"].strip()
+
+                # remove markdown code blocks if present
+                if inner_content.startswith("```json"):
+                    inner_content = inner_content[7:]
+                elif inner_content.startswith("```"):
+                    inner_content = inner_content[3:]
+                if inner_content.endswith("```"):
+                    inner_content = inner_content[:-3]
+                inner_content = inner_content.strip()
+
+                data = json.loads(inner_content)
+            elif "result" in envelope and isinstance(envelope["result"], dict):
+                data = envelope["result"]
+            elif "participants" in envelope:
+                # direct JSON response without wrapper
+                data = envelope
+            else:
+                logger.error(f"Unexpected participant response structure: {list(envelope.keys())}")
+                return []
+
             participants = []
             for p in data.get("participants", []):
                 name = p.get("name", "").strip()
@@ -330,6 +349,7 @@ class ClaudeCodeProvider(LLMProvider):
             return participants
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse participant detection response: {e}")
+            logger.debug(f"Raw content (first 500 chars): {content[:500]}")
             return []
 
 def get_provider(config: TrackerConfig) -> LLMProvider:

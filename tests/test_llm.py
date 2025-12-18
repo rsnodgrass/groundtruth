@@ -410,12 +410,10 @@ class TestClaudeCodeProvider:
         provider = ClaudeCodeProvider()
         mock_get_prompt.return_value = "Detect participants from: {transcript}"
 
+        # Claude Code returns JSON envelope when using --output-format json
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = """{
-  "participants": [{"name": "Alice", "role": "CEO"}],
-  "reasoning": "Test"
-}"""
+        mock_result.stdout = '{"type":"result","result":"{\\"participants\\": [{\\"name\\": \\"Alice\\", \\"role\\": \\"CEO\\"}], \\"reasoning\\": \\"Test\\"}"}'
         mock_run.return_value = mock_result
 
         participants = provider.detect_participants("Alice: Hello")
@@ -426,7 +424,7 @@ class TestClaudeCodeProvider:
         # verify subprocess was called correctly
         mock_run.assert_called_once()
         call_args = mock_run.call_args
-        assert call_args.args[0] == ["claude", "--print"]
+        assert call_args.args[0] == ["claude", "--print", "--output-format", "json"]
         assert call_args.kwargs["capture_output"] is True
         assert call_args.kwargs["text"] is True
 
