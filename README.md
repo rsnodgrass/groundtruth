@@ -120,22 +120,26 @@ groundtruth process board-meetings/ --framework board.md --output board-decision
 
 ## Requirements
 
-- **Python 3.12+**
+- **Speaker attribution in transcripts** — Most transcription services ([Otter.ai](https://otter.ai/referrals/LL5QS7E8), Rev, Fireflies, Descript) provide this automatically
 - **Claude Code** — Recommended for decision extraction (if you use anything else you are on your own to figure out how to make this work!). Install from https://claude.ai/code
-- **Speaker attribution in transcripts** — Most transcription services (Otter.ai, Rev, Fireflies, Descript) provide this automatically
+- **Python 3.12+** — Needed for actually running the actual Groundtruth tool
 
 ---
 
 ## Example Output
 
-Every decision includes:
-- Category, Type, Significance (1-5 scale)
-- Full description with context
-- Agreement status (Agreed / Needs Clarification / Unresolved)
-- Per-person agreement (Yes / Partial / No)
-- Evidence from transcript
+[![Decisions Tab Screenshot](docs/images/decisions-tab-screenshot.png)](examples/sample-output-Decisions.xlsx)
 
-See `examples/` for sample transcripts and generated reports.
+*Click to download the sample Excel file*
+
+Every decision includes:
+- **Category & Significance** (1-5 scale, color-coded)
+- **Full description** with context from the conversation
+- **Agreement status** (Agreed / Needs Clarification / Unresolved)
+- **Per-person agreement** (Yes / Partial / No)
+- **Notes** with evidence from transcript
+
+See [`examples/`](examples/) for sample transcripts and generated reports.
 
 ---
 
@@ -143,15 +147,11 @@ See `examples/` for sample transcripts and generated reports.
 
 MIT License - see [LICENSE](LICENSE) for details.
 
----
-
 ## Contributing
 
 Contributions welcome! See [docs/contributing.md](docs/contributing.md) for details.
 
-Key areas: agreement detection heuristics, transcript format support, visualization features.
-
----
+## Support
 
 **No support provided.** This is an unsupported open-source project. Use at your own risk. Pull requests welcome.
 

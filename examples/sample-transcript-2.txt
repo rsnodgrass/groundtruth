@@ -1,0 +1,167 @@
+Technical Architecture Review
+Wed, Jan 16, 2025 2:00PM • 47 minutes
+Exported from Otter.ai
+
+SPEAKERS
+Alice Chen, Bob Martinez, Carol Thompson
+
+TRANSCRIPT
+
+Alice Chen  0:00
+Alright, let me just make sure the recording is going. Okay, we're good. So thanks everyone for joining. Today we really need to nail down the client-side caching strategy because it's blocking the mobile team.
+
+Bob Martinez  0:14
+Yeah, totally. So I've been digging into this for the past week, and I think we have two realistic options here. Option one is what I'm calling a proxy cache - basically we just store exact copies of whatever the server sends us. Super simple, very predictable.
+
+Carol Thompson  0:31
+And option two?
+
+Bob Martinez  0:33
+Option two is more sophisticated. We'd have a condensed cache that transforms and personalizes the data on the client side. So instead of storing the full server response, we extract just what that specific user needs.
+
+Alice Chen  0:48
+Okay, walk me through the tradeoffs. What's the implementation complexity look like?
+
+Bob Martinez  0:54
+So proxy cache is maybe a week of work, tops. It's straightforward - we intercept the response, hash the request URL, store it in IndexedDB or whatever. The condensed approach is probably three to four weeks because we need transformation logic, we need to handle schema migrations when the server format changes, and honestly there's a lot of edge cases I'm still not sure about.
+
+Carol Thompson  1:18
+From a user experience standpoint, I care most about perceived performance. Like, when someone opens the app, how fast does content appear?
+
+Bob Martinez  1:28
+Good question. For repeated requests, proxy cache is actually faster because there's zero processing - we just serve what we stored. Condensed cache has to do some work to reconstruct the view, but it uses way less storage on the device.
+
+Alice Chen  1:43
+How much less storage are we talking?
+
+Bob Martinez  1:46
+Rough estimate, maybe 60-70% less. But I want to be honest, I'm not super confident in that number yet.
+
+Carol Thompson  1:54
+Is storage actually a concern though? Like, are users running out of space?
+
+Bob Martinez  2:00
+On older Android devices, yeah, it can be. We've gotten a few support tickets about it. But it's not a huge volume.
+
+Alice Chen  2:08
+Okay, I'm leaning toward the proxy cache approach, at least for v1. We can always optimize later once we have real usage data. What do you think, Carol?
+
+Carol Thompson  2:18
+I agree. Ship something simple, measure it, iterate. That's always been our approach.
+
+Bob Martinez  2:24
+I'm on board with that direction. But I do want to flag - I'm still confused about some edge cases. Like, what happens when the server schema changes? Do we invalidate the entire cache? And what about when a user is offline and we have stale data?
+
+Alice Chen  2:41
+Those are good questions. Can you document them?
+
+Bob Martinez  2:44
+Yeah, I'll write up a technical spec with all the open questions. Should have it by Friday.
+
+Alice Chen  2:50
+Perfect. So to summarize - we're going with proxy cache as our baseline caching strategy. Bob will document the open questions around cache invalidation and offline behavior. Everyone aligned?
+
+Carol Thompson  3:02
+Yep.
+
+Bob Martinez  3:03
+Aligned.
+
+Alice Chen  3:05
+Great. Let's move on. I wanted to quickly discuss documentation standards because I keep seeing inconsistency in how we write things.
+
+Carol Thompson  3:14
+Oh yeah, I noticed that too. Like sometimes we say "you must do X" and sometimes it's "we recommend doing X" and it's not clear which is which.
+
+Alice Chen  3:24
+Exactly. So I'm proposing we standardize on two specific terms. "Rules" for things that are testable and enforceable - like, the build will fail if you violate them. And "recommendations" for things that are matters of taste and judgment.
+
+Bob Martinez  3:40
+That makes sense. So like, "functions must have type annotations" would be a rule, but "prefer descriptive variable names" would be a recommendation?
+
+Alice Chen  3:50
+Exactly. Rules are hard requirements that we can automate. Recommendations are guidance that requires human judgment.
+
+Carol Thompson  3:58
+I like that distinction. It's clear and actionable.
+
+Bob Martinez  4:02
+Same. Let's use it.
+
+Alice Chen  4:04
+Okay great, I'll update the style guide with these definitions. Should take me like an hour.
+
+Carol Thompson  4:10
+While we're on documentation, can we talk about the API versioning strategy? I've been getting questions from the partner team.
+
+Alice Chen  4:18
+Oh right, we should definitely cover that. So the question is whether we do URL-based versioning like /v1/users or header-based versioning.
+
+Bob Martinez  4:28
+I have strong opinions here. URL-based versioning is way more discoverable. When partners are debugging, they can see the version right in their logs, in their browser, everywhere.
+
+Carol Thompson  4:40
+The design team prefers URL-based too. It's just cleaner when we're documenting examples.
+
+Alice Chen  4:46
+Any downsides?
+
+Bob Martinez  4:48
+The main argument against is that it "pollutes" the URL namespace, but honestly I think that's a pretty weak argument. The benefits of discoverability far outweigh it.
+
+Alice Chen  4:58
+I'm convinced. Let's go with URL-based versioning. Format will be /v1/, /v2/, etc. We'll support the current version and one version back.
+
+Bob Martinez  5:08
+Two versions max at any time. That keeps our maintenance burden reasonable.
+
+Carol Thompson  5:13
+And what's the deprecation timeline when we do release a new version?
+
+Alice Chen  5:17
+Good question. I think we should give partners at least six months notice before sunsetting an old version. Does that seem reasonable?
+
+Bob Martinez  5:26
+Six months feels right. Long enough for enterprise customers to plan migrations.
+
+Carol Thompson  5:31
+Agreed. Six months with clear communication.
+
+Alice Chen  5:35
+Alright, so URL-based versioning, /v1/ format, support current plus one previous version, six month deprecation window. I'll write this up in the API guidelines doc.
+
+Bob Martinez  5:47
+One more thing on API design - should we standardize our error response format? Right now different endpoints return errors differently and it's confusing.
+
+Alice Chen  5:57
+Oh definitely. What are you thinking?
+
+Bob Martinez  6:00
+Standard JSON structure. Every error has a code field that's machine readable, a message field that's human readable, and an optional details field for additional context.
+
+Carol Thompson  6:12
+Can we also include a request_id for debugging? When partners report issues, it's super helpful to have a correlation ID.
+
+Bob Martinez  6:20
+Great idea. So code, message, details, and request_id.
+
+Alice Chen  6:26
+What about HTTP status codes? Are we following REST conventions?
+
+Bob Martinez  6:31
+Yeah, standard REST. 400 for bad requests, 401 for auth failures, 403 for forbidden, 404 for not found, 500 for server errors. We should probably also use 429 for rate limiting.
+
+Alice Chen  6:45
+Makes sense. So standardized error format with code, message, details, and request_id. Standard HTTP status codes including 429 for rate limits. Bob, can you add this to your Friday spec?
+
+Bob Martinez  6:58
+Yep, I'll include it.
+
+Alice Chen  7:01
+Okay, we're at time. Quick recap of decisions: proxy cache for v1, URL-based API versioning with six month deprecation cycles, standardized error response format, and consistent terminology for rules versus recommendations. Thanks everyone.
+
+Carol Thompson  7:17
+Thanks Alice!
+
+Bob Martinez  7:18
+Good meeting. Later!
