@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import subprocess
 import time
 from abc import ABC, abstractmethod
@@ -22,6 +23,48 @@ from groundtruth.config import (
 from groundtruth.prompts import get_participant_detection_prompt
 
 logger = logging.getLogger(__name__)
+
+
+def scan_transcript_for_speakers(transcript: str) -> list[str]:
+    """
+    Scan transcript for speaker patterns to find all participants.
+
+    Looks for common transcript speaker formats:
+    - "FirstName LastName  H:MM" (Otter.ai timestamp format)
+    - "FirstName LastName:" (colon format)
+    - "[FirstName LastName]" (bracket format)
+
+    Returns:
+        List of unique first names detected as speakers
+    """
+    speakers: set[str] = set()
+
+    # pattern 1: "FirstName LastName  H:MM" or "FirstName  H:MM" (Otter.ai style)
+    # matches: "Ryan Snodgrass  5:12" or "Ajit Banerjee  0:06"
+    timestamp_pattern = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+\d+:\d+", re.MULTILINE)
+    for match in timestamp_pattern.finditer(transcript):
+        full_name = match.group(1)
+        first_name = full_name.split()[0]
+        speakers.add(first_name)
+
+    # pattern 2: "FirstName LastName:" at start of line (colon format)
+    colon_pattern = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?):", re.MULTILINE)
+    for match in colon_pattern.finditer(transcript):
+        full_name = match.group(1)
+        first_name = full_name.split()[0]
+        speakers.add(first_name)
+
+    # pattern 3: "[FirstName LastName]" (bracket format)
+    bracket_pattern = re.compile(r"\[([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\]")
+    for match in bracket_pattern.finditer(transcript):
+        full_name = match.group(1)
+        first_name = full_name.split()[0]
+        speakers.add(first_name)
+
+    if speakers:
+        logger.info(f"Pattern-detected speakers: {sorted(speakers)}")
+
+    return sorted(speakers)
 
 
 # retry configuration
@@ -216,11 +259,20 @@ class LiteLLMProvider(LLMProvider):
         self.model = model or "claude-sonnet-4-20250514"
 
     def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
-        """Detect participants using LiteLLM."""
-        # use first ~4000 chars of transcript for detection (sufficient context)
+        """Detect participants using pattern scanning plus LiteLLM fallback."""
+        # first: scan full transcript for speaker patterns (fast, reliable)
+        pattern_speakers = scan_transcript_for_speakers(transcript)
+
+        # if pattern detection found speakers, use those directly
+        if pattern_speakers:
+            logger.info(f"Using pattern-detected speakers: {pattern_speakers}")
+            return [ParticipantConfig(name=name) for name in pattern_speakers]
+
+        # fallback: use LLM detection if no patterns found
         sample = transcript[:4000] if len(transcript) > 4000 else transcript
         prompt_template = get_participant_detection_prompt()
         prompt = prompt_template.format(transcript=sample)
+        logger.info(f"No speaker patterns found, using LLM detection")
 
         try:
             response = completion(
@@ -284,12 +336,20 @@ class ClaudeCodeProvider(LLMProvider):
         self.claude_code_path = claude_code_path
 
     def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
-        """Detect participants using Claude Code CLI with retry."""
-        # use first ~4000 chars of transcript for detection
+        """Detect participants using pattern scanning plus Claude Code CLI."""
+        # first: scan full transcript for speaker patterns (fast, reliable)
+        pattern_speakers = scan_transcript_for_speakers(transcript)
+
+        # if pattern detection found speakers, use those directly (more reliable)
+        if pattern_speakers:
+            logger.info(f"Using pattern-detected speakers: {pattern_speakers}")
+            return [ParticipantConfig(name=name) for name in pattern_speakers]
+
+        # fallback: use LLM detection if no patterns found
         sample = transcript[:4000] if len(transcript) > 4000 else transcript
         prompt_template = get_participant_detection_prompt()
         prompt = prompt_template.format(transcript=sample)
-        logger.info(f"Starting participant detection: sample_length={len(sample)} chars")
+        logger.info(f"No speaker patterns found, using LLM detection: sample_length={len(sample)} chars")
 
         def _call_cli() -> str:
             """Inner function for retry wrapper - returns raw response."""

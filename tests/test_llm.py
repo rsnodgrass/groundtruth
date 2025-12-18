@@ -156,14 +156,30 @@ class TestLiteLLMProvider:
         assert len(participants) == 1
         assert participants[0].name == "Bob"
 
+    def test_detect_participants_pattern_detection(self) -> None:
+        """Test that pattern detection finds speakers from transcript."""
+        provider = LiteLLMProvider()
+
+        # transcript with colon-style speaker markers
+        transcript = """Alice: Let's discuss the project.
+Bob: Sure, sounds good.
+Carol: I agree."""
+        participants = provider.detect_participants(transcript)
+
+        assert len(participants) == 3
+        names = [p.name for p in participants]
+        assert "Alice" in names
+        assert "Bob" in names
+        assert "Carol" in names
+
     @patch("groundtruth.llm.get_participant_detection_prompt")
     @patch("groundtruth.llm.completion")
-    def test_detect_participants_success(
+    def test_detect_participants_llm_fallback(
         self,
         mock_completion: Mock,
         mock_get_prompt: Mock,
     ) -> None:
-        """Test successful participant detection via LiteLLM."""
+        """Test LLM fallback when no speaker patterns found."""
         provider = LiteLLMProvider()
         mock_get_prompt.return_value = "Detect participants from: {transcript}"
 
@@ -178,13 +194,14 @@ class TestLiteLLMProvider:
 }"""
         mock_completion.return_value = mock_response
 
-        transcript = "Alice: Let's discuss the project."
+        # transcript without speaker patterns - triggers LLM fallback
+        transcript = "the meeting discussed various topics"
         participants = provider.detect_participants(transcript)
 
         assert len(participants) == 1
         assert participants[0].name == "Alice"
 
-        # verify LiteLLM was called correctly
+        # verify LiteLLM was called (LLM fallback used)
         mock_completion.assert_called_once()
         call_args = mock_completion.call_args
         assert call_args.kwargs["model"] == "claude-sonnet-4-20250514"
@@ -401,14 +418,36 @@ class TestClaudeCodeProvider:
         assert len(result.decisions) == 0
         assert "Failed to parse JSON response" in caplog.text
 
+    def test_detect_participants_pattern_detection(self) -> None:
+        """Test that pattern detection finds speakers from transcript."""
+        provider = ClaudeCodeProvider()
+
+        # transcript with Otter.ai-style speaker markers
+        transcript = """Ajit Banerjee  0:06
+Hello everyone.
+
+Ryan Snodgrass  1:15
+Hi Ajit.
+
+Milkana Brace  2:30
+Good morning!
+"""
+        participants = provider.detect_participants(transcript)
+
+        assert len(participants) == 3
+        names = [p.name for p in participants]
+        assert "Ajit" in names
+        assert "Ryan" in names
+        assert "Milkana" in names
+
     @patch("groundtruth.llm.get_participant_detection_prompt")
     @patch("groundtruth.llm.subprocess.run")
-    def test_detect_participants_success(
+    def test_detect_participants_llm_fallback(
         self,
         mock_run: Mock,
         mock_get_prompt: Mock,
     ) -> None:
-        """Test successful participant detection via Claude Code CLI."""
+        """Test LLM fallback when no speaker patterns found."""
         provider = ClaudeCodeProvider()
         mock_get_prompt.return_value = "Detect participants from: {transcript}"
 
@@ -418,12 +457,13 @@ class TestClaudeCodeProvider:
         mock_result.stdout = '{"type":"result","result":"{\\"participants\\": [{\\"name\\": \\"Alice\\", \\"role\\": \\"CEO\\"}], \\"reasoning\\": \\"Test\\"}"}'
         mock_run.return_value = mock_result
 
-        participants = provider.detect_participants("Alice: Hello")
+        # transcript without speaker patterns - triggers LLM fallback
+        participants = provider.detect_participants("the meeting discussed various topics")
 
         assert len(participants) == 1
         assert participants[0].name == "Alice"
 
-        # verify subprocess was called correctly
+        # verify subprocess was called (LLM fallback used)
         mock_run.assert_called_once()
         call_args = mock_run.call_args
         assert call_args.args[0] == ["claude", "--print", "--output-format", "json"]
