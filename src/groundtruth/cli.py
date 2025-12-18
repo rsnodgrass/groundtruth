@@ -478,6 +478,16 @@ def validate(csv_file: Path, deciders: str) -> None:
     is_flag=True,
     help="Disable automatic participant detection from transcript",
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force regeneration, ignore cached results",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be processed without doing it",
+)
 def process(
     folder: Path,
     from_date: datetime | None,
@@ -494,11 +504,14 @@ def process(
     from_csv: bool,
     framework: tuple[Path, ...],
     no_auto_detect: bool,
+    force: bool,
+    dry_run: bool,
 ) -> None:
     """Process meeting transcripts in a folder.
 
-    By default extracts decisions using LLM. Use --from-csv to regenerate
-    XLSX from existing CSV files.
+    By default extracts decisions using LLM. Only changed/new files are
+    processed (cached results used for unchanged files). Use --force to
+    reprocess all files.
 
     Deciders are auto-detected from transcripts unless explicitly set.
 
@@ -511,9 +524,21 @@ def process(
         groundtruth process meetings/ -f company.yaml -f meeting-notes.md
 
         groundtruth process meetings/ --from-csv
+
+        groundtruth process meetings/ --force
+
+        groundtruth process meetings/ --dry-run
     """
-    from groundtruth.config import ParticipantConfig
-    from groundtruth.llm import extract_decisions_from_folder_parallel
+    from groundtruth.config import Decision, ParticipantConfig
+    from groundtruth.manifest import (
+        FileEntry,
+        compute_content_hash,
+        create_file_entry,
+        create_manifest,
+        get_files_to_process,
+        load_manifest,
+        save_manifest,
+    )
 
     console.print(f"[blue]Scanning:[/blue] {folder}")
 
@@ -626,15 +651,13 @@ def process(
 
     console.print(f"[blue]Found {len(transcript_files)} transcript file(s)[/blue]")
 
-    # extract decisions using parallel JSON-based extraction
-    auto_detect = not bool(deciders)  # skip detection if deciders explicitly provided
-    rows = extract_decisions_from_folder_parallel(
-        folder, tracker_config, transcript_files,
-        max_workers=4,
-        auto_detect_participants=auto_detect,
-    )
+    # determine output directory early (needed for manifest)
+    if output:
+        output_dir = output if output.is_dir() else output.parent
+    else:
+        output_dir = folder
 
-    # read raw framework content for "Produced By" tab (separate from custom_prompt for LLM)
+    # read raw framework content for hashing and "Produced By" tab
     framework_text = None
     if framework:
         framework_texts = []
@@ -642,11 +665,91 @@ def process(
             framework_texts.append(f"# {fw_path.name}\n{fw_path.read_text(encoding='utf-8')}")
         framework_text = "\n\n".join(framework_texts)
 
-    # determine output path
-    if output:
-        output_dir = output if output.is_dir() else output.parent
-    else:
-        output_dir = folder
+    # compute hashes for change detection
+    config_hash = compute_content_hash(tracker_config.custom_prompt)
+    framework_hash = compute_content_hash(framework_text or "")
+
+    # load manifest for incremental processing (unless --force)
+    manifest = None
+    if not force:
+        manifest = load_manifest(output_dir)
+        if manifest:
+            console.print("[dim]Found cached results, checking for changes...[/dim]")
+
+    # determine which files need processing
+    files_to_process, cached_decisions = get_files_to_process(
+        transcript_files, manifest, config_hash, framework_hash
+    )
+
+    # report what will be processed
+    if manifest and not force:
+        console.print()
+        for tf in transcript_files:
+            if tf in files_to_process:
+                if tf.name in (manifest.files if manifest else {}):
+                    console.print(f"  {tf.name}: [yellow]MODIFIED[/yellow]")
+                else:
+                    console.print(f"  {tf.name}: [cyan]NEW[/cyan]")
+            else:
+                console.print(f"  {tf.name}: [dim]unchanged (cached)[/dim]")
+        console.print()
+
+    # handle --dry-run
+    if dry_run:
+        console.print("[bold]Dry run - no changes will be made[/bold]")
+        cached_count = len(transcript_files) - len(files_to_process)
+        console.print(f"Would process {len(files_to_process)} of {len(transcript_files)} files")
+        if cached_count > 0:
+            console.print(f"Would use cached results for {cached_count} files")
+        return
+
+    # skip if nothing to process and we have cached data
+    if not files_to_process and cached_decisions:
+        console.print("[green]All files unchanged, using cached results[/green]")
+    elif files_to_process:
+        if force:
+            console.print(f"[blue]Processing {len(files_to_process)} files (--force)[/blue]")
+        else:
+            cached_count = len(transcript_files) - len(files_to_process)
+            if cached_count > 0:
+                console.print(f"[blue]Processing {len(files_to_process)} changed files "
+                              f"({cached_count} cached)[/blue]")
+            else:
+                console.print(f"[blue]Processing {len(files_to_process)} files[/blue]")
+
+    # extract decisions from changed files using parallel JSON-based extraction
+    auto_detect = not bool(deciders)  # skip detection if deciders explicitly provided
+    new_decisions: list[Decision] = []
+    new_file_entries: dict[str, FileEntry] = {}
+
+    if files_to_process:
+        # import here to get per-file decisions
+        from groundtruth.llm import extract_decisions_from_transcript_json
+
+        for tf in files_to_process:
+            console.print(f"  [dim]Extracting:[/dim] {tf.name}")
+            result = extract_decisions_from_transcript_json(
+                tf, tracker_config, auto_detect_participants=auto_detect
+            )
+            new_decisions.extend(result.decisions)
+
+            # create file entry for manifest
+            decision_dicts = [d.model_dump() for d in result.decisions]
+            new_file_entries[tf.name] = create_file_entry(tf, decision_dicts)
+
+    # merge with cached decisions
+    all_decisions: list[Decision] = list(new_decisions)
+    for filename, decision_dicts in cached_decisions.items():
+        for d in decision_dicts:
+            all_decisions.append(Decision(**d))
+        # preserve cached file entries in manifest
+        if manifest and filename in manifest.files:
+            new_file_entries[filename] = manifest.files[filename]
+
+    # convert to CSV rows for output
+    from groundtruth.config import decisions_to_csv_rows
+    participant_names = tracker_config.participant_names or []
+    rows = decisions_to_csv_rows(all_decisions, participant_names)
 
     base_name = get_output_filename(folder, output_name, not no_date_prefix)
     xlsx_path = output_dir / f"{base_name}.xlsx"
@@ -659,6 +762,15 @@ def process(
         decision_framework=framework_text,
     )
     console.print(f"[green]Created:[/green] {xlsx_path} ({count} decisions)")
+
+    # save updated manifest
+    new_manifest = create_manifest(
+        output_file=xlsx_path.name,
+        config_hash=config_hash,
+        framework_hash=framework_hash,
+        file_entries=new_file_entries,
+    )
+    save_manifest(output_dir, new_manifest)
 
     # generate CSV (optional)
     if csv:

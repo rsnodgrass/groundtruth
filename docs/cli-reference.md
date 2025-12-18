@@ -46,8 +46,10 @@ groundtruth process <folder> [options]
 | `--csv` | Also output CSV |
 | `--no-date-prefix` | Disable date prefix |
 | `--deciders, -d LIST` | Names of decision-makers |
-| `--pattern GLOB` | Transcript file pattern (default: *.txt) |
+| `--pattern GLOB` | Transcript file pattern (default: all supported types) |
 | `--from-csv` | Process existing CSVs instead of transcripts |
+| `--force` | Force regeneration, ignore cached results |
+| `--dry-run` | Show what would be processed without doing it |
 
 ### xlsx
 
@@ -82,10 +84,33 @@ groundtruth template              # Print CSV header
 ## Output Naming
 
 By default:
-- **Single transcript**: `{input-name}-Groundtruth.xlsx`
-- **Multiple transcripts**: `{folder-name}-Groundtruth.xlsx`
-- **Date prefix**: `2025-12-15-{name}-Groundtruth.xlsx` (default, disable with `--no-date-prefix`)
+- **Single transcript**: `{input-name}-Decisions.xlsx`
+- **Multiple transcripts**: `{folder-name}-Decisions.xlsx`
+- **Date prefix**: `2025-12-15-{name}-Decisions.xlsx` (default, disable with `--no-date-prefix`)
 - **Custom name**: Use `--output-name` to override
+
+## Incremental Processing
+
+By default, `groundtruth process` tracks which files have been processed in a `.groundtruth.json` manifest. On subsequent runs, only changed or new files are reprocessed - unchanged files use cached results.
+
+```bash
+$ groundtruth process meetings/
+
+Found cached results, checking for changes...
+  meeting-1.txt: unchanged (cached)
+  meeting-2.txt: MODIFIED
+  meeting-3.txt: NEW
+
+Processing 2 changed files (1 cached)
+```
+
+- Use `--force` to reprocess all files regardless of cache
+- Use `--dry-run` to preview what would be processed without doing it
+
+The manifest stores:
+- File hashes (SHA-256) for change detection
+- Cached decisions from previous extractions
+- Config and framework hashes (changes trigger full reprocessing)
 
 ## Examples
 
@@ -107,6 +132,12 @@ groundtruth extract meeting.txt -f team.yaml -f meeting.md
 
 # OpenAI provider
 groundtruth extract meeting.txt --provider openai --model gpt-4
+
+# Force reprocessing all files
+groundtruth process meetings/ --force
+
+# Preview what would be processed
+groundtruth process meetings/ --dry-run
 ```
 
 ## See Also

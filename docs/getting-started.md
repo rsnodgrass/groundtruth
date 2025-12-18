@@ -77,7 +77,7 @@ groundtruth process meetings/2025-12-15/
 groundtruth process meetings/ --from 2025-12-09 --to 2025-12-15
 
 # Generate XLSX from existing CSV
-groundtruth xlsx meetings/2025-12-15/2025-12-15-Groundtruth.csv
+groundtruth xlsx meetings/2025-12-15/2025-12-15-Decisions.csv
 ```
 
 ## Understanding Output
@@ -88,6 +88,33 @@ Every decision includes:
 - **Significance** - 1 (Critical) to 5 (Minor)
 - **Status** - Agreed / Needs Clarification / Unresolved
 - **Per-person agreement** - Yes / Partial / No for each participant
+
+## Efficient Reprocessing
+
+Groundtruth automatically caches extraction results. Running `process` again only extracts from new or modified files:
+
+```bash
+$ groundtruth process meetings/
+
+Found cached results, checking for changes...
+  meeting-1.txt: unchanged (cached)
+  meeting-2.txt: MODIFIED
+
+Processing 1 changed files (1 cached)
+Created: 2025-12-17-meetings-Decisions.xlsx (8 decisions)
+```
+
+To force full reprocessing:
+
+```bash
+groundtruth process meetings/ --force
+```
+
+To preview what would be processed without running:
+
+```bash
+groundtruth process meetings/ --dry-run
+```
 
 ## Post-Processing Checklist
 
