@@ -40,9 +40,9 @@ For Significance 5 (Same Page):
 
 Output ONLY valid JSON with this structure:
 ```json
-{
+{{
   "decisions": [
-    {
+    {{
       "category": "Category name from list above",
       "significance": 1-5,
       "status": "Agreed" | "Needs Clarification" | "Unresolved",
@@ -53,9 +53,9 @@ Output ONLY valid JSON with this structure:
       "notes": "Supporting evidence from transcript",
       "meeting_date": "",
       "meeting_reference": ""
-    }
+    }}
   ]
-}
+}}
 ```
 
 Field requirements:
