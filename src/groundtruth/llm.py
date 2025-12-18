@@ -7,6 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Literal
 
 from litellm import completion
 
@@ -131,6 +132,53 @@ def retry_with_backoff(
             raise
 
     raise last_exception or RuntimeError(f"{operation_name} failed after retries")
+
+
+def validate_decision(decision: Decision) -> Decision:
+    """
+    Ensure Status is logically consistent with individual agreements.
+
+    Rules:
+    - ALL "Yes" → Status must be "Agreed"
+    - ANY "Partial" (no "No") → Status must be "Needs Clarification"
+    - ANY "No" → Status must be "Unresolved"
+
+    Args:
+        decision: Decision object to validate
+
+    Returns:
+        Decision with corrected status if needed
+    """
+    agreements = list(decision.agreements.values())
+
+    if not agreements:
+        return decision
+
+    has_no = "No" in agreements
+    has_partial = "Partial" in agreements
+    all_yes = all(a == "Yes" for a in agreements)
+
+    # determine correct status based on agreements
+    correct_status: Literal["Agreed", "Needs Clarification", "Unresolved"]
+    if has_no:
+        correct_status = "Unresolved"
+    elif has_partial:
+        correct_status = "Needs Clarification"
+    elif all_yes:
+        correct_status = "Agreed"
+    else:
+        # fallback for unexpected values
+        correct_status = "Needs Clarification"
+
+    # fix if inconsistent
+    if decision.status != correct_status:
+        logger.warning(
+            f"Fixed status inconsistency: '{decision.title}' "
+            f"changed from '{decision.status}' to '{correct_status}'"
+        )
+        decision.status = correct_status
+
+    return decision
 
 
 class LLMProvider(ABC):
@@ -374,6 +422,8 @@ class ClaudeCodeProvider(LLMProvider):
                         meeting_date=d.get("meeting_date", ""),
                         meeting_reference=d.get("meeting_reference", ""),
                     )
+                    # validate status/agreement consistency
+                    decision = validate_decision(decision)
                     decisions.append(decision)
                 except Exception as e:
                     logger.warning(f"Failed to parse decision: {e}")

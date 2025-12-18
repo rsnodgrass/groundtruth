@@ -21,6 +21,7 @@ from groundtruth.llm import (
     ensure_participants,
     extract_decisions_from_transcript_json,
     get_provider,
+    validate_decision,
 )
 
 
@@ -868,3 +869,167 @@ class TestExtractDecisionsFromTranscriptJSON:
 
         assert result.decisions[0].meeting_date == "2025-02-20"
         assert result.decisions[0].meeting_reference == "meeting-2025-01-15.txt"
+
+
+class TestValidateDecision:
+    """Tests for validate_decision function."""
+
+    def test_all_yes_status_agreed_unchanged(self) -> None:
+        """Test that Status='Agreed' with all 'Yes' is unchanged."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes", "Bob": "Yes", "Carol": "Yes"},
+        )
+
+        result = validate_decision(decision)
+
+        assert result.status == "Agreed"
+
+    def test_agreed_with_partial_corrected(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test that Status='Agreed' with 'Partial' is corrected to 'Needs Clarification'."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes", "Bob": "Partial"},
+        )
+
+        with caplog.at_level("WARNING"):
+            result = validate_decision(decision)
+
+        assert result.status == "Needs Clarification"
+        assert "Fixed status inconsistency" in caplog.text
+        assert "'Agreed' to 'Needs Clarification'" in caplog.text
+
+    def test_agreed_with_no_corrected(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test that Status='Agreed' with 'No' is corrected to 'Unresolved'."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes", "Bob": "No"},
+        )
+
+        with caplog.at_level("WARNING"):
+            result = validate_decision(decision)
+
+        assert result.status == "Unresolved"
+        assert "Fixed status inconsistency" in caplog.text
+
+    def test_unresolved_with_all_yes_corrected(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test that Status='Unresolved' with all 'Yes' is corrected to 'Agreed'."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Unresolved",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes", "Bob": "Yes"},
+        )
+
+        with caplog.at_level("WARNING"):
+            result = validate_decision(decision)
+
+        assert result.status == "Agreed"
+        assert "Fixed status inconsistency" in caplog.text
+
+    def test_needs_clarification_with_partial_unchanged(self) -> None:
+        """Test that Status='Needs Clarification' with 'Partial' is unchanged."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Needs Clarification",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes", "Bob": "Partial"},
+        )
+
+        result = validate_decision(decision)
+
+        assert result.status == "Needs Clarification"
+
+    def test_no_overrides_partial(self) -> None:
+        """Test that 'No' takes precedence over 'Partial'."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Needs Clarification",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Partial", "Bob": "No"},
+        )
+
+        result = validate_decision(decision)
+
+        assert result.status == "Unresolved"
+
+    def test_empty_agreements_unchanged(self) -> None:
+        """Test that decisions with empty agreements are unchanged."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={},
+        )
+
+        result = validate_decision(decision)
+
+        assert result.status == "Agreed"
+
+    def test_single_participant_yes(self) -> None:
+        """Test single participant with 'Yes' is 'Agreed'."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Needs Clarification",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes"},
+        )
+
+        result = validate_decision(decision)
+
+        assert result.status == "Agreed"
+
+    def test_single_participant_no(self) -> None:
+        """Test single participant with 'No' is 'Unresolved'."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "No"},
+        )
+
+        result = validate_decision(decision)
+
+        assert result.status == "Unresolved"
