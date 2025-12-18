@@ -64,29 +64,32 @@ Status MUST be logically consistent with individual agreements:
 
 **NEVER output Status="Agreed" unless ALL individuals are "Yes".**
 
+## Agreement Value Definitions
+
+**CRITICAL: Silence or "did not object" = Partial, NEVER Yes**
+
+| Value | Requires | Examples |
+|-------|----------|----------|
+| **Yes** | EXPLICIT verbal agreement | "Agreed", "Yes", "Let's do it", "Sounds good", "I'm on board", "+1", "That works" |
+| **Partial** | Silence, lack of objection, or reservations | "Did not object", no response, "I guess", "Maybe", hesitation, changed subject, was not present |
+| **No** | EXPLICIT disagreement | "No", "I disagree", "We shouldn't", "That won't work", "I'm against this" |
+
+**A decision is only truly "Agreed" when ALL parties EXPLICITLY confirm.** One-sided decisions where others stayed silent must have those silent parties marked as "Partial".
+
 ## Agreement Standards
 
-**Be conservative - default to "No" or "Partial" unless agreement is explicit.**
+**Be conservative - default to "Partial" unless agreement is explicit.**
 
-For Significance 1-2 (Critical/Extremely Important):
-- ALL parties must explicitly acknowledge the exact decision
-- Any ambiguity = No
+For higher significance (1-3):
+- ALL parties must explicitly acknowledge the decision
+- Any ambiguity = Partial
 - "Parking" a topic = No
-- Silence = No
+- Silence or "did not object" = Partial
 
-For Significance 3 (Important):
-- ANY hint of misalignment = Partial or No
-- Different terminology = Partial
-- Unanswered clarifying questions = Partial
-- Confusion at any point = Partial
-
-For Significance 4 (Moderate):
-- Similar to 3 but slightly relaxed
-- Minor confusion that seemed resolved = Yes
-
-For Significance 5 (Same Page):
-- General alignment sufficient
-- Only mark No/Partial if explicit disagreement
+For lower significance (4-5):
+- Still require explicit agreement for "Yes"
+- Silence = Partial (not Yes)
+- Only mark "No" if explicit disagreement
 
 ## Output Format
 
