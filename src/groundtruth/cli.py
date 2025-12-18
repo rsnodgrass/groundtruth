@@ -241,6 +241,14 @@ def extract(
     rows = decisions_to_csv_rows(result.decisions, participant_names)
     console.print(f"[dim]Participants: {', '.join(participant_names)}[/dim]")
 
+    # read raw framework content for "Produced By" tab (separate from custom_prompt for LLM)
+    framework_text = None
+    if framework:
+        framework_texts = []
+        for fw_path in framework:
+            framework_texts.append(f"# {fw_path.name}\n{fw_path.read_text(encoding='utf-8')}")
+        framework_text = "\n\n".join(framework_texts)
+
     # determine output path
     if output:
         output_dir = output if output.is_dir() else output.parent
@@ -260,7 +268,7 @@ def extract(
         rows,
         xlsx_path,
         tracker_config.participant_names,
-        decision_framework=tracker_config.custom_prompt,
+        decision_framework=framework_text,
     )
     console.print(f"[green]Created:[/green] {xlsx_path} ({count} decisions)")
 
@@ -626,6 +634,14 @@ def process(
         auto_detect_participants=auto_detect,
     )
 
+    # read raw framework content for "Produced By" tab (separate from custom_prompt for LLM)
+    framework_text = None
+    if framework:
+        framework_texts = []
+        for fw_path in framework:
+            framework_texts.append(f"# {fw_path.name}\n{fw_path.read_text(encoding='utf-8')}")
+        framework_text = "\n\n".join(framework_texts)
+
     # determine output path
     if output:
         output_dir = output if output.is_dir() else output.parent
@@ -640,7 +656,7 @@ def process(
         rows,
         xlsx_path,
         tracker_config.participant_names,
-        decision_framework=tracker_config.custom_prompt,
+        decision_framework=framework_text,
     )
     console.print(f"[green]Created:[/green] {xlsx_path} ({count} decisions)")
 
