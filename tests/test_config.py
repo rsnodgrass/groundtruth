@@ -10,6 +10,7 @@ from groundtruth.config import (
     Decision,
     ExtractionResult,
     TrackerConfig,
+    _parse_markdown_participants,
     decisions_to_csv_rows,
     get_default_config,
     get_json_schema_for_extraction,
@@ -410,6 +411,116 @@ custom_prompt: |
         assert "Design" in result.agreement_rules
         assert result.agreement_rules["Design"].requires_all == ["David"]
 
+    def test_merge_markdown_framework_with_participants(
+        self,
+        tmp_path: Path,
+        sample_config: TrackerConfig,
+    ) -> None:
+        """Test that markdown framework parses participants from table."""
+        framework_md = tmp_path / "framework.md"
+        framework_md.write_text(
+            """# Team Framework
+
+## Participants
+
+| Name | Role | Domain |
+|------|------|--------|
+| **Ryan** | CTO | Engineering |
+| Ajit | CEO | Strategy |
+| Milkana | PM | Product |
+
+## Other Section
+
+More content here.
+""",
+            encoding="utf-8",
+        )
+
+        result = merge_frameworks(sample_config, [framework_md])
+
+        # participants should be extracted from markdown table
+        assert len(result.participants) == 3
+        names = [p.name for p in result.participants]
+        assert "Ryan" in names
+        assert "Ajit" in names
+        assert "Milkana" in names
+
+
+class TestParseMarkdownParticipants:
+    """Tests for _parse_markdown_participants function."""
+
+    def test_parse_basic_table(self) -> None:
+        """Test parsing a basic participant table."""
+        content = """## Participants
+
+| Name | Role |
+|------|------|
+| Alice | CEO |
+| Bob | CTO |
+"""
+        participants = _parse_markdown_participants(content)
+
+        assert len(participants) == 2
+        assert participants[0].name == "Alice"
+        assert participants[0].role == "CEO"
+        assert participants[1].name == "Bob"
+        assert participants[1].role == "CTO"
+
+    def test_parse_bold_names(self) -> None:
+        """Test parsing names with bold markdown."""
+        content = """## Participants
+
+| Name | Role |
+|------|------|
+| **Ryan** | Founder |
+| **Ajit** | Co-founder |
+"""
+        participants = _parse_markdown_participants(content)
+
+        assert len(participants) == 2
+        assert participants[0].name == "Ryan"
+        assert participants[1].name == "Ajit"
+
+    def test_stops_at_next_section(self) -> None:
+        """Test that parsing stops at next ## section."""
+        content = """## Participants
+
+| Name | Role |
+|------|------|
+| Alice | CEO |
+
+## Categories
+
+| Category | Description |
+|----------|-------------|
+| Tech | Technical decisions |
+"""
+        participants = _parse_markdown_participants(content)
+
+        assert len(participants) == 1
+        assert participants[0].name == "Alice"
+
+    def test_no_participants_section(self) -> None:
+        """Test handling content without Participants section."""
+        content = """## Categories
+
+Some categories here.
+"""
+        participants = _parse_markdown_participants(content)
+
+        assert len(participants) == 0
+
+    def test_empty_table(self) -> None:
+        """Test handling Participants section with only header."""
+        content = """## Participants
+
+| Name | Role |
+|------|------|
+"""
+        participants = _parse_markdown_participants(content)
+
+        assert len(participants) == 0
+
 
 class TestGetDefaultConfig:
     """Tests for get_default_config function."""
@@ -527,7 +638,7 @@ class TestGetJSONSchemaForExtraction:
         for name in participants:
             participant_schema = agreements["properties"][name]
             assert participant_schema["type"] == "string"
-            assert set(participant_schema["enum"]) == {"Yes", "Partial", "No"}
+            assert set(participant_schema["enum"]) == {"Yes", "Partial", "No", "Not Present"}
 
 
 @pytest.mark.skip(reason="build_json_extraction_prompt now uses external prompt templates")

@@ -42,7 +42,7 @@ colors:
       background: "FFC7CE"  # light red
       text: "9C0006"
 
-  # Agreement columns (Yes/Partial/No)
+  # Agreement columns (Yes/Partial/No/Not Present)
   agreement:
     "yes":
       background: "C6EFCE"  # light green
@@ -53,6 +53,9 @@ colors:
     "no":
       background: "FFC7CE"  # light red
       text: "9C0006"
+    not-present:
+      background: "D9D9D9"  # light gray
+      text: "666666"
 
 # Column widths (in Excel units, ~7 pixels per unit)
 column_widths:

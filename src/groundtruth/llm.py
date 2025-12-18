@@ -138,10 +138,13 @@ def validate_decision(decision: Decision) -> Decision:
     """
     Ensure Status is logically consistent with individual agreements.
 
-    Rules:
-    - ALL "Yes" → Status must be "Agreed"
+    Rules (excluding "Not Present" from consideration):
+    - ALL present are "Yes" → Status must be "Agreed"
     - ANY "Partial" (no "No") → Status must be "Needs Clarification"
     - ANY "No" → Status must be "Unresolved"
+
+    "Not Present" means the person was not in the meeting/discussion,
+    so their vote doesn't count toward the decision.
 
     Args:
         decision: Decision object to validate
@@ -149,16 +152,17 @@ def validate_decision(decision: Decision) -> Decision:
     Returns:
         Decision with corrected status if needed
     """
-    agreements = list(decision.agreements.values())
+    # filter out "Not Present" - those people weren't part of this decision
+    present_agreements = [a for a in decision.agreements.values() if a != "Not Present"]
 
-    if not agreements:
+    if not present_agreements:
         return decision
 
-    has_no = "No" in agreements
-    has_partial = "Partial" in agreements
-    all_yes = all(a == "Yes" for a in agreements)
+    has_no = "No" in present_agreements
+    has_partial = "Partial" in present_agreements
+    all_yes = all(a == "Yes" for a in present_agreements)
 
-    # determine correct status based on agreements
+    # determine correct status based on agreements from present participants only
     correct_status: Literal["Agreed", "Needs Clarification", "Unresolved"]
     if has_no:
         correct_status = "Unresolved"

@@ -59,15 +59,15 @@ Ask yourself: "If this decision were wrong, how bad would it be?"
 
 ## Status Rules (MUST follow)
 
-Status MUST be logically consistent with individual agreements:
+Status MUST be logically consistent with individual agreements. **Exclude "Not Present" from consideration** - only count people who were actually in the discussion.
 
-| If individual agreements are... | Status MUST be... |
+| If PRESENT participants are... | Status MUST be... |
 |---------------------------------|-------------------|
 | ALL "Yes" | "Agreed" |
 | ANY "Partial" (no "No") | "Needs Clarification" |
 | ANY "No" | "Unresolved" |
 
-**NEVER output Status="Agreed" unless ALL individuals are "Yes".**
+**NEVER output Status="Agreed" unless ALL PRESENT individuals are "Yes".** "Not Present" is excluded from status calculation.
 
 ## Agreement Value Definitions
 
@@ -76,10 +76,11 @@ Status MUST be logically consistent with individual agreements:
 | Value | Requires | Examples |
 |-------|----------|----------|
 | **Yes** | EXPLICIT verbal agreement | "Agreed", "Yes", "Let's do it", "Sounds good", "I'm on board", "+1", "That works" |
-| **Partial** | Silence, lack of objection, or reservations | "Did not object", no response, "I guess", "Maybe", hesitation, changed subject, was not present |
+| **Partial** | Silence, lack of objection, or reservations | "Did not object", no response, "I guess", "Maybe", hesitation, changed subject |
 | **No** | EXPLICIT disagreement | "No", "I disagree", "We shouldn't", "That won't work", "I'm against this" |
+| **Not Present** | Person was not in this discussion | Not mentioned at all, joined late, left early, different meeting segment |
 
-**A decision is only truly "Agreed" when ALL parties EXPLICITLY confirm.** One-sided decisions where others stayed silent must have those silent parties marked as "Partial".
+**A decision is only truly "Agreed" when ALL parties EXPLICITLY confirm.** One-sided decisions where others stayed silent must have those silent parties marked as "Partial". Use "Not Present" when a participant was not involved in the specific discussion.
 
 ## Agreement Standards
 

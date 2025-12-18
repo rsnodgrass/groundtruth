@@ -1033,3 +1033,54 @@ class TestValidateDecision:
         result = validate_decision(decision)
 
         assert result.status == "Unresolved"
+
+    def test_not_present_excluded_from_status(self) -> None:
+        """Test that 'Not Present' is excluded from status calculation."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Needs Clarification",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes", "Bob": "Yes", "Carol": "Not Present"},
+        )
+
+        result = validate_decision(decision)
+
+        # all PRESENT participants said Yes, so should be Agreed
+        assert result.status == "Agreed"
+
+    def test_not_present_with_partial(self) -> None:
+        """Test 'Not Present' with 'Partial' from present person."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Yes", "Bob": "Partial", "Carol": "Not Present"},
+        )
+
+        result = validate_decision(decision)
+
+        # Bob is Partial, so should be Needs Clarification
+        assert result.status == "Needs Clarification"
+
+    def test_all_not_present_unchanged(self) -> None:
+        """Test that all 'Not Present' leaves status unchanged."""
+        decision = Decision(
+            category="Tech",
+            significance=3,
+            status="Agreed",
+            title="Test Decision",
+            description="Test",
+            decision="Test",
+            agreements={"Alice": "Not Present", "Bob": "Not Present"},
+        )
+
+        result = validate_decision(decision)
+
+        # no present participants, status unchanged
+        assert result.status == "Agreed"

@@ -97,6 +97,7 @@ def get_agreement_styles(config: dict[str, Any]) -> dict[str, PatternFill]:
         "yes": "Yes",
         "partial": "Partial",
         "no": "No",
+        "not-present": "Not Present",
     }
 
     for config_key, display_key in key_map.items():

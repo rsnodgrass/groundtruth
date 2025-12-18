@@ -24,7 +24,7 @@ class Decision(BaseModel):
     title: str = Field(description="Short descriptive title (3-8 words)")
     description: str = Field(description="Full context about the decision")
     decision: str = Field(description="What was decided, or 'No decision reached'")
-    agreements: dict[str, Literal["Yes", "Partial", "No"]] = Field(
+    agreements: dict[str, Literal["Yes", "Partial", "No", "Not Present"]] = Field(
         description="Per-person agreement status"
     )
     notes: str = Field(default="", description="Supporting evidence from transcript")
@@ -81,7 +81,7 @@ def get_json_schema_for_extraction(participant_names: list[str]) -> dict:
                         "decision": {"type": "string"},
                         "agreements": {
                             "type": "object",
-                            "properties": {name: {"type": "string", "enum": ["Yes", "Partial", "No"]} for name in participant_names},
+                            "properties": {name: {"type": "string", "enum": ["Yes", "Partial", "No", "Not Present"]} for name in participant_names},
                             "required": participant_names,
                         },
                         "notes": {"type": "string"},
@@ -287,6 +287,58 @@ def get_default_config() -> TrackerConfig:
     )
 
 
+def _parse_markdown_participants(content: str) -> list[ParticipantConfig]:
+    """
+    Extract participants from a markdown table under ## Participants heading.
+
+    Parses tables like:
+    | Name | Role | Domain |
+    |------|------|--------|
+    | **Ryan** | CTO | Engineering |
+    | Ajit | CEO | Strategy |
+    """
+    participants = []
+    lines = content.split("\n")
+    in_participants_section = False
+
+    for line in lines:
+        # check for participants heading (## Participants or ## Participant)
+        if line.strip().lower().startswith("## participant"):
+            in_participants_section = True
+            continue
+
+        # check for next section (any ## heading)
+        if in_participants_section and line.strip().startswith("## "):
+            break
+
+        # skip horizontal rules (---)
+        if in_participants_section and line.strip().startswith("---"):
+            continue
+
+        # parse table rows
+        if in_participants_section and line.strip().startswith("|"):
+            # skip separator rows like |---|---|
+            if "---" in line:
+                continue
+
+            # parse table row: | **Name** | Role | Domain |
+            parts = [p.strip() for p in line.split("|")]
+            parts = [p for p in parts if p]  # remove empty strings from split
+
+            if parts:
+                # extract name (remove ** bold markers)
+                name = parts[0].replace("**", "").strip()
+
+                # skip header row
+                if name.lower() == "name":
+                    continue
+
+                role = parts[1] if len(parts) > 1 else ""
+                participants.append(ParticipantConfig(name=name, role=role))
+
+    return participants
+
+
 def merge_frameworks(
     base_config: TrackerConfig,
     framework_paths: list[Path],
@@ -350,7 +402,11 @@ def merge_frameworks(
                 # not valid YAML, treat as markdown
                 pass
         else:
-            # markdown framework - append to custom_prompt
+            # markdown framework - parse participants and append to custom_prompt
+            md_participants = _parse_markdown_participants(content)
+            if md_participants:
+                config.participants = md_participants
+
             if config.custom_prompt:
                 framework_text = f"# Framework: {path.name}\n{content}"
                 config.custom_prompt = f"{config.custom_prompt}\n\n{framework_text}"
