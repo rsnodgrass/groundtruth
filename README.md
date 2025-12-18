@@ -39,7 +39,7 @@ groundtruth process meetings/2025-12-15/
 
 ## Why This Matters Now
 
-Pre-2023, teams made 10-20 decisions per week. Now, with AI-assisted development, that's 10x higher. Architecture decisions happen mid-coding session. Product pivots emerge from midnight Slack threads.
+Pre-2023, teams made 10-20 significant decisions per week. Now, with AI-assisted development, that's 10x higher. Architecture decisions happen mid-coding session. Product pivots emerge from midnight Slack threads.
 
 **The fastest teams aren't those making the most decisions. They're the ones where everyone knows what was decided.**
 

@@ -91,11 +91,6 @@ groundtruth/
 - **Multi-day discussions** - Better handling of decisions that span meetings
 - **Visualization features** - Charts, dashboards, trend analysis
 
-## Getting Help
-
-- **Issues**: [GitHub Issues](https://github.com/rsnodgrass/groundtruth/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/rsnodgrass/groundtruth/discussions)
-
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.

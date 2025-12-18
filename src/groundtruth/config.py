@@ -1,10 +1,11 @@
 """Configuration management for Groundtruth with customizable prompts."""
 
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from groundtruth.config import ParticipantConfig
@@ -16,6 +17,134 @@ def _build_csv_header_line(participants: list["ParticipantConfig"]) -> str:
     base = "Category,Significance,Status,Title,Description,Decision"
     trailing = "Notes,Meeting Date,Meeting Reference"
     return f"{base},{agreed_cols},{trailing}"
+
+
+# JSON intermediate format models
+class Decision(BaseModel):
+    """A single extracted decision."""
+
+    category: str = Field(description="Decision category (e.g., Technical Architecture, GTM)")
+    significance: int = Field(ge=1, le=5, description="1=Critical, 5=Minor")
+    status: Literal["Agreed", "Needs Clarification", "Unresolved"] = Field(
+        description="Agreement status"
+    )
+    title: str = Field(description="Short descriptive title (3-8 words)")
+    description: str = Field(description="Full context about the decision")
+    decision: str = Field(description="What was decided, or 'No decision reached'")
+    agreements: dict[str, Literal["Yes", "Partial", "No"]] = Field(
+        description="Per-person agreement status"
+    )
+    notes: str = Field(default="", description="Supporting evidence from transcript")
+    meeting_date: str = Field(default="", description="YYYY-MM-DD format")
+    meeting_reference: str = Field(default="", description="Source transcript filename")
+
+
+class ExtractionResult(BaseModel):
+    """Result of extracting decisions from a transcript."""
+
+    decisions: list[Decision] = Field(description="List of extracted decisions")
+    participants_detected: list[str] = Field(
+        default_factory=list, description="Participants found in transcript"
+    )
+
+
+class ExtractionMetadata(BaseModel):
+    """Metadata about the extraction process."""
+
+    transcript_path: str = ""
+    transcript_chars: int = 0
+    extraction_time_ms: int = 0
+    participant_detection_time_ms: int = 0
+    model: str = ""
+    provider: str = ""
+
+
+class FileExtractionResult(BaseModel):
+    """Complete result for a single file extraction."""
+
+    result: ExtractionResult
+    metadata: ExtractionMetadata
+
+
+def get_json_schema_for_extraction(participant_names: list[str]) -> dict:
+    """
+    Generate JSON schema for decision extraction.
+
+    The schema is dynamic based on participant names.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "decisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string"},
+                        "significance": {"type": "integer", "minimum": 1, "maximum": 5},
+                        "status": {"type": "string", "enum": ["Agreed", "Needs Clarification", "Unresolved"]},
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "decision": {"type": "string"},
+                        "agreements": {
+                            "type": "object",
+                            "properties": {name: {"type": "string", "enum": ["Yes", "Partial", "No"]} for name in participant_names},
+                            "required": participant_names,
+                        },
+                        "notes": {"type": "string"},
+                        "meeting_date": {"type": "string"},
+                        "meeting_reference": {"type": "string"},
+                    },
+                    "required": ["category", "significance", "status", "title", "description", "decision", "agreements"],
+                },
+            },
+        },
+        "required": ["decisions"],
+    }
+
+
+def decisions_to_csv_rows(
+    decisions: list[Decision],
+    participant_names: list[str],
+) -> list[list[str]]:
+    """
+    Convert Decision objects to CSV rows.
+
+    Args:
+        decisions: List of Decision objects
+        participant_names: Ordered list of participant names for agreement columns
+
+    Returns:
+        List of CSV rows including header
+    """
+    # build header
+    agreed_cols = [f"{name} Agreed" for name in participant_names]
+    header = ["Category", "Significance", "Status", "Title", "Description", "Decision"] + agreed_cols + ["Notes", "Meeting Date", "Meeting Reference"]
+
+    rows = [header]
+
+    # sort by category then significance
+    sorted_decisions = sorted(decisions, key=lambda d: (d.category, d.significance))
+
+    for d in sorted_decisions:
+        # build agreement values in order
+        agreement_values = [d.agreements.get(name, "No") for name in participant_names]
+
+        row = [
+            d.category,
+            str(d.significance),
+            d.status,
+            d.title,
+            d.description,
+            d.decision,
+            *agreement_values,
+            d.notes,
+            d.meeting_date,
+            d.meeting_reference,
+        ]
+        rows.append(row)
+
+    return rows
 
 
 class AgreementRule(BaseModel):
@@ -459,5 +588,123 @@ Sort by Category (alphabetically), then by Significance (1 first).
 {transcript}
 
 Output the CSV now (header row first, then data rows):"""
+
+    return prompt
+
+
+def build_json_extraction_prompt(config: TrackerConfig, transcript: str) -> str:
+    """Build extraction prompt that requests JSON output."""
+    # build category section
+    categories_text = "\n".join(
+        f"- **{c.name}**: {c.description}"
+        for c in (config.categories if config.categories else DEFAULT_CATEGORIES)
+    )
+
+    # build types section
+    types_text = "\n".join(
+        f"- **{t.name}**: {t.description}"
+        for t in (config.types if config.types else DEFAULT_TYPES)
+    )
+
+    # build participants section
+    participants = config.participants if config.participants else DEFAULT_PARTICIPANTS
+    participants_text = ", ".join(p.name for p in participants)
+    participant_names = [p.name for p in participants]
+
+    # build agreement rules section
+    agreement_rules_text = ""
+    if config.agreement_rules:
+        rules = []
+        for key, rule in config.agreement_rules.items():
+            if rule.requires_all:
+                all_names = ", ".join(rule.requires_all)
+                rules.append(f"- **{key}**: Requires agreement from ALL of: {all_names}")
+            if rule.requires_any:
+                any_names = ", ".join(rule.requires_any)
+                rules.append(f"- **{key}**: Requires agreement from AT LEAST ONE of: {any_names}")
+        agreement_rules_text = "\n".join(rules)
+
+    # build example JSON structure
+    example_agreements = ", ".join(f'"{name}": "Yes"' for name in participant_names)
+
+    prompt = f"""Extract decisions from this meeting transcript and output as JSON.
+
+## Participants
+{participants_text}
+
+## Categories
+{categories_text}
+
+## Types
+{types_text}
+
+## Agreement Rules
+{agreement_rules_text if agreement_rules_text else "Standard agreement rules apply."}
+
+## Agreement Standards
+
+**Be conservative - default to "No" or "Partial" unless agreement is explicit.**
+
+For Significance 1-2 (Critical/Extremely Important):
+- ALL parties must explicitly acknowledge the exact decision
+- Any ambiguity = No
+- "Parking" a topic = No
+- Silence = No
+
+For Significance 3 (Important):
+- ANY hint of misalignment = Partial or No
+- Different terminology = Partial
+- Unanswered clarifying questions = Partial
+- Confusion at any point = Partial
+
+For Significance 4 (Moderate):
+- Similar to 3 but slightly relaxed
+- Minor confusion that seemed resolved = Yes
+
+For Significance 5 (Same Page):
+- General alignment sufficient
+- Only mark No/Partial if explicit disagreement
+
+## Output Format
+
+Output ONLY valid JSON with this structure:
+{{
+  "decisions": [
+    {{
+      "category": "Category name from list above",
+      "significance": 1-5,
+      "status": "Agreed" | "Needs Clarification" | "Unresolved",
+      "title": "Short descriptive title (3-8 words)",
+      "description": "Full context about the decision",
+      "decision": "What was decided, or 'No decision reached'",
+      "agreements": {{{example_agreements}}},
+      "notes": "Supporting evidence from transcript",
+      "meeting_date": "",
+      "meeting_reference": ""
+    }}
+  ]
+}}
+
+Field requirements:
+- category: One of the categories listed above
+- significance: 1-5 (1=Critical, 5=Minor)
+- status: "Agreed", "Needs Clarification", or "Unresolved"
+- title: Short descriptive title (3-8 words)
+- description: Full context about the decision
+- decision: What was decided, or "No decision reached"
+- agreements: Object with {participants_text} as keys, values are "Yes", "Partial", or "No"
+- notes: Supporting evidence from transcript
+- meeting_date: Leave empty (will be filled in)
+- meeting_reference: Leave empty (will be filled in)
+
+Sort decisions by category (alphabetically), then by significance (1 first).
+
+{f"## Additional Instructions{chr(10)}{config.custom_prompt}" if config.custom_prompt else ""}
+
+## Transcript
+
+{transcript}
+
+Output the JSON now:"""
 
     return prompt
