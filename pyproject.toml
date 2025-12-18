@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Extract and track decisions (and non-decisions) from meeting transcripts, AI sessions, and team discussions"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     { name = "Ryan Snodgrass" }
 ]
@@ -18,8 +18,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
@@ -35,6 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-mock>=3.12.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
@@ -51,13 +50,31 @@ Issues = "https://github.com/rsnodgrass/groundtruth/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/groundtruth"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/groundtruth/prompts" = "groundtruth/prompts"
+
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]

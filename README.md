@@ -120,7 +120,7 @@ groundtruth process board-meetings/ --framework board.md --output board-decision
 
 ## Requirements
 
-- **Python 3.14+**
+- **Python 3.12+**
 - **Claude Code** — Recommended for decision extraction (if you use anything else you are on your own to figure out how to make this work!). Install from https://claude.ai/code
 - **Speaker attribution in transcripts** — Most transcription services (Otter.ai, Rev, Fireflies, Descript) provide this automatically
 
