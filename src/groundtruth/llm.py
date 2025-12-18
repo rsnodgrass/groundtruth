@@ -2,7 +2,6 @@
 
 import json
 import logging
-import re
 import subprocess
 import time
 from abc import ABC, abstractmethod
@@ -20,51 +19,8 @@ from groundtruth.config import (
     build_json_extraction_prompt,
     decisions_to_csv_rows,
 )
-from groundtruth.prompts import get_participant_detection_prompt
 
 logger = logging.getLogger(__name__)
-
-
-def scan_transcript_for_speakers(transcript: str) -> list[str]:
-    """
-    Scan transcript for speaker patterns to find all participants.
-
-    Looks for common transcript speaker formats:
-    - "FirstName LastName  H:MM" (Otter.ai timestamp format)
-    - "FirstName LastName:" (colon format)
-    - "[FirstName LastName]" (bracket format)
-
-    Returns:
-        List of unique first names detected as speakers
-    """
-    speakers: set[str] = set()
-
-    # pattern 1: "FirstName LastName  H:MM" or "FirstName  H:MM" (Otter.ai style)
-    # matches: "Ryan Snodgrass  5:12" or "Ajit Banerjee  0:06"
-    timestamp_pattern = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+\d+:\d+", re.MULTILINE)
-    for match in timestamp_pattern.finditer(transcript):
-        full_name = match.group(1)
-        first_name = full_name.split()[0]
-        speakers.add(first_name)
-
-    # pattern 2: "FirstName LastName:" at start of line (colon format)
-    colon_pattern = re.compile(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?):", re.MULTILINE)
-    for match in colon_pattern.finditer(transcript):
-        full_name = match.group(1)
-        first_name = full_name.split()[0]
-        speakers.add(first_name)
-
-    # pattern 3: "[FirstName LastName]" (bracket format)
-    bracket_pattern = re.compile(r"\[([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\]")
-    for match in bracket_pattern.finditer(transcript):
-        full_name = match.group(1)
-        first_name = full_name.split()[0]
-        speakers.add(first_name)
-
-    if speakers:
-        logger.info(f"Pattern-detected speakers: {sorted(speakers)}")
-
-    return sorted(speakers)
 
 
 # retry configuration
@@ -231,18 +187,7 @@ def validate_decision(decision: Decision) -> Decision:
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
 
-    @abstractmethod
-    def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
-        """
-        Detect participants from a transcript.
-
-        Args:
-            transcript: The meeting transcript text
-
-        Returns:
-            List of detected participants
-        """
-        pass
+    pass
 
 
 class LiteLLMProvider(LLMProvider):
@@ -258,70 +203,6 @@ class LiteLLMProvider(LLMProvider):
         """
         self.model = model or "claude-sonnet-4-20250514"
 
-    def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
-        """Detect participants using pattern scanning plus LiteLLM fallback."""
-        # first: scan full transcript for speaker patterns (fast, reliable)
-        pattern_speakers = scan_transcript_for_speakers(transcript)
-
-        # if pattern detection found speakers, use those directly
-        if pattern_speakers:
-            logger.info(f"Using pattern-detected speakers: {pattern_speakers}")
-            return [ParticipantConfig(name=name) for name in pattern_speakers]
-
-        # fallback: use LLM detection if no patterns found
-        sample = transcript[:4000] if len(transcript) > 4000 else transcript
-        prompt_template = get_participant_detection_prompt()
-        prompt = prompt_template.format(transcript=sample)
-        logger.info(f"No speaker patterns found, using LLM detection")
-
-        try:
-            response = completion(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1024,
-                temperature=0.1,
-            )
-
-            content = response.choices[0].message.content
-            if content is None:
-                logger.warning("Empty response from participant detection")
-                return []
-
-            return self._parse_participant_response(content)
-
-        except Exception as e:
-            logger.error("Participant detection failed", exc_info=e)
-            return []
-
-    def _parse_participant_response(self, content: str) -> list[ParticipantConfig]:
-        """Parse JSON response from participant detection."""
-        content = content.strip()
-
-        # remove markdown code blocks if present
-        if content.startswith("```json"):
-            content = content[7:]
-        elif content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-
-        try:
-            data = json.loads(content.strip())
-            participants = []
-            for p in data.get("participants", []):
-                name = p.get("name", "").strip()
-                if name:
-                    participants.append(ParticipantConfig(
-                        name=name,
-                        role=p.get("role", ""),
-                    ))
-            logger.info(f"Detected participants: {[p.name for p in participants]}")
-            if data.get("reasoning"):
-                logger.debug(f"Detection reasoning: {data['reasoning']}")
-            return participants
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse participant detection response: {e}")
-            return []
 
 class ClaudeCodeProvider(LLMProvider):
     """Provider using Claude Code CLI as the model."""
@@ -335,63 +216,16 @@ class ClaudeCodeProvider(LLMProvider):
         """
         self.claude_code_path = claude_code_path
 
-    def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
-        """Detect participants using pattern scanning plus Claude Code CLI."""
-        # first: scan full transcript for speaker patterns (fast, reliable)
-        pattern_speakers = scan_transcript_for_speakers(transcript)
-
-        # if pattern detection found speakers, use those directly (more reliable)
-        if pattern_speakers:
-            logger.info(f"Using pattern-detected speakers: {pattern_speakers}")
-            return [ParticipantConfig(name=name) for name in pattern_speakers]
-
-        # fallback: use LLM detection if no patterns found
-        sample = transcript[:4000] if len(transcript) > 4000 else transcript
-        prompt_template = get_participant_detection_prompt()
-        prompt = prompt_template.format(transcript=sample)
-        logger.info(f"No speaker patterns found, using LLM detection: sample_length={len(sample)} chars")
-
-        def _call_cli() -> str:
-            """Inner function for retry wrapper - returns raw response."""
-            start_time = time.time()
-            result = subprocess.run(
-                [self.claude_code_path, "--print", "--output-format", "json"],
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=120,  # 2 minute timeout for detection
-            )
-            elapsed = time.time() - start_time
-
-            metrics.llm_calls += 1
-            metrics.participant_detection_calls += 1
-            metrics.participant_detection_time += elapsed
-            logger.info(f"Participant detection: {elapsed:.1f}s, {len(result.stdout)} chars")
-
-            if result.returncode != 0:
-                raise EmptyResponseError(f"CLI failed (code {result.returncode}): {result.stderr}")
-
-            return result.stdout
-
-        try:
-            response = retry_with_backoff(
-                _call_cli,
-                operation_name="Participant detection",
-            )
-            return self._parse_participant_response(response)
-
-        except Exception as e:
-            logger.error("Participant detection via Claude Code failed", exc_info=e)
-            return []
-
     def extract_decisions_json(self, transcript: str, config: TrackerConfig) -> ExtractionResult:
         """Extract decisions using Claude Code CLI with JSON output and retry."""
         prompt = build_json_extraction_prompt(config, transcript)
         prompt_len = len(prompt)
         logger.info(f"Starting JSON decision extraction: prompt_length={prompt_len} chars")
 
-        # get participant names for parsing
-        participant_names = config.participant_names or ["Ryan", "Ajit", "Milkana"]
+        # get framework participants for union with detected
+        framework_participants = []
+        if config.participants_from_framework and config.participants:
+            framework_participants = [p.name for p in config.participants]
 
         def _call_cli() -> str:
             """Inner function for retry wrapper - returns raw response."""
@@ -424,7 +258,7 @@ class ClaudeCodeProvider(LLMProvider):
                 _call_cli,
                 operation_name="Decision extraction",
             )
-            return self._parse_json_extraction_response(response, participant_names)
+            return self._parse_json_extraction_response(response, framework_participants)
 
         except FileNotFoundError as e:
             logger.error(f"Claude Code CLI not found at: {self.claude_code_path}")
@@ -436,7 +270,7 @@ class ClaudeCodeProvider(LLMProvider):
             raise
 
     def _parse_json_extraction_response(
-        self, content: str, participant_names: list[str]
+        self, content: str, framework_participants: list[str]
     ) -> ExtractionResult:
         """Parse JSON response from decision extraction."""
         content = content.strip()
@@ -463,12 +297,27 @@ class ClaudeCodeProvider(LLMProvider):
                 data = json.loads(inner_content)
             elif "result" in envelope and isinstance(envelope["result"], dict):
                 data = envelope["result"]
-            elif "decisions" in envelope:
+            elif "decisions" in envelope or "participants_detected" in envelope:
                 # direct JSON response without wrapper
                 data = envelope
             else:
                 logger.error(f"Unexpected JSON envelope structure: {list(envelope.keys())}")
                 return ExtractionResult(decisions=[], participants_detected=[])
+
+            # extract participants detected by LLM
+            llm_participants = data.get("participants_detected", [])
+
+            # union framework participants + LLM detected (framework first, then additions)
+            all_participants = list(framework_participants)
+            for p in llm_participants:
+                if p not in all_participants:
+                    all_participants.append(p)
+
+            if llm_participants:
+                logger.info(f"LLM detected participants: {llm_participants}")
+            if framework_participants:
+                logger.info(f"Framework participants: {framework_participants}")
+            logger.info(f"Final participant list: {all_participants}")
 
             # parse decisions
             decisions = []
@@ -494,7 +343,7 @@ class ClaudeCodeProvider(LLMProvider):
                     continue
 
             logger.info(f"Parsed {len(decisions)} decisions from JSON response")
-            return ExtractionResult(decisions=decisions, participants_detected=participant_names)
+            return ExtractionResult(decisions=decisions, participants_detected=all_participants)
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
@@ -502,54 +351,6 @@ class ClaudeCodeProvider(LLMProvider):
             # return empty result on parse failure
             return ExtractionResult(decisions=[], participants_detected=[])
 
-    def _parse_participant_response(self, content: str) -> list[ParticipantConfig]:
-        """Parse JSON response from participant detection."""
-        content = content.strip()
-        logger.debug(f"Raw participant response (first 300 chars): {content[:300]}")
-
-        try:
-            # Claude Code --output-format json wraps response in envelope
-            envelope = json.loads(content)
-
-            # extract the actual result string from envelope
-            if "result" in envelope and isinstance(envelope["result"], str):
-                inner_content = envelope["result"].strip()
-
-                # remove markdown code blocks if present
-                if inner_content.startswith("```json"):
-                    inner_content = inner_content[7:]
-                elif inner_content.startswith("```"):
-                    inner_content = inner_content[3:]
-                if inner_content.endswith("```"):
-                    inner_content = inner_content[:-3]
-                inner_content = inner_content.strip()
-
-                data = json.loads(inner_content)
-            elif "result" in envelope and isinstance(envelope["result"], dict):
-                data = envelope["result"]
-            elif "participants" in envelope:
-                # direct JSON response without wrapper
-                data = envelope
-            else:
-                logger.error(f"Unexpected participant response structure: {list(envelope.keys())}")
-                return []
-
-            participants = []
-            for p in data.get("participants", []):
-                name = p.get("name", "").strip()
-                if name:
-                    participants.append(ParticipantConfig(
-                        name=name,
-                        role=p.get("role", ""),
-                    ))
-            logger.info(f"Detected participants: {[p.name for p in participants]}")
-            if data.get("reasoning"):
-                logger.debug(f"Detection reasoning: {data['reasoning']}")
-            return participants
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse participant detection response: {e}")
-            logger.debug(f"Raw content (first 500 chars): {content[:500]}")
-            return []
 
 def get_provider(config: TrackerConfig) -> LLMProvider:
     """
@@ -570,83 +371,25 @@ def get_provider(config: TrackerConfig) -> LLMProvider:
         return LiteLLMProvider(model=config.model)
 
 
-def detect_participants_from_transcript(
-    transcript: str,
-    config: TrackerConfig,
-) -> list[ParticipantConfig]:
-    """
-    Detect participants from a transcript using LLM.
-
-    This is the first step in processing - determine who the deciders are
-    before extracting decisions.
-
-    Args:
-        transcript: The meeting transcript text
-        config: Tracker configuration (for LLM provider settings)
-
-    Returns:
-        List of detected participants
-    """
-    provider = get_provider(config)
-    return provider.detect_participants(transcript)
-
-
-def ensure_participants(
-    transcript: str,
-    config: TrackerConfig,
-) -> TrackerConfig:
-    """
-    Ensure config has participants, detecting from transcript if needed.
-
-    This implements the workflow:
-    1. If participants explicitly provided in config/framework, use those
-    2. Otherwise, auto-detect from transcript
-
-    Args:
-        transcript: The meeting transcript text
-        config: Tracker configuration
-
-    Returns:
-        Config with participants populated (may be modified copy)
-    """
-    # if participants were explicitly set from a framework/config file, use them
-    if config.participants_from_framework and config.participants:
-        logger.info(
-            f"Using participants from framework: {[p.name for p in config.participants]}"
-        )
-        return config
-
-    # detect participants from transcript
-    logger.info("No explicit participants configured, detecting from transcript...")
-    detected = detect_participants_from_transcript(transcript, config)
-
-    if detected:
-        # create modified config with detected participants
-        config.participants = detected
-        logger.info(f"Detected {len(detected)} participants: {[p.name for p in detected]}")
-    else:
-        logger.warning("Failed to detect participants, using defaults")
-
-    return config
-
-
 def extract_decisions_from_transcript_json(
     transcript_path: Path,
     config: TrackerConfig,
     meeting_date: str | None = None,
-    auto_detect_participants: bool = True,
 ) -> ExtractionResult:
     """
     Extract decisions from a transcript file using JSON format.
+
+    Participant detection is now done during extraction in a single pass.
+    Framework participants (if provided) are used as hints and combined
+    with any additional participants detected by the LLM.
 
     Args:
         transcript_path: Path to transcript file
         config: Tracker configuration
         meeting_date: Optional meeting date (YYYY-MM-DD), extracted from filename if not provided
-        auto_detect_participants: If True, detect participants from transcript if not explicitly set
 
     Returns:
-        ExtractionResult with list of Decision objects
+        ExtractionResult with list of Decision objects and detected participants
     """
     file_start_time = time.time()
 
@@ -670,11 +413,7 @@ def extract_decisions_from_transcript_json(
                         meeting_date = potential_date
                         break
 
-    # step 1: ensure we have participants (detect if needed)
-    if auto_detect_participants:
-        config = ensure_participants(transcript, config)
-
-    # step 2: get provider and extract decisions using JSON
+    # get provider and extract decisions (participants detected during extraction)
     provider = get_provider(config)
 
     # use JSON extraction (required - CSV extraction has been removed)
@@ -703,7 +442,6 @@ def extract_decisions_from_transcript_json(
 def _extract_single_file(
     transcript_file: Path,
     config: TrackerConfig,
-    auto_detect_participants: bool,
 ) -> tuple[Path, ExtractionResult | None, str | None]:
     """
     Extract decisions from a single file. Used by parallel processing.
@@ -715,7 +453,6 @@ def _extract_single_file(
         result = extract_decisions_from_transcript_json(
             transcript_file,
             config,
-            auto_detect_participants=auto_detect_participants,
         )
         return (transcript_file, result, None)
     except Exception as e:
@@ -728,17 +465,17 @@ def extract_decisions_from_folder_parallel(
     config: TrackerConfig,
     files_or_pattern: list[Path] | str = "*.txt",
     max_workers: int = 4,
-    auto_detect_participants: bool = True,
 ) -> list[list[str]]:
     """
     Extract decisions from all transcripts in a folder using parallel processing.
+
+    Participant detection is done during extraction in a single pass per file.
 
     Args:
         folder_path: Path to folder containing transcripts
         config: Tracker configuration
         files_or_pattern: Either a list of file paths or a glob pattern string
         max_workers: Maximum number of parallel workers
-        auto_detect_participants: If True, detect participants from transcript if not explicitly set
 
     Returns:
         Merged list of CSV rows (single header, all data rows)
@@ -770,7 +507,6 @@ def extract_decisions_from_folder_parallel(
                 _extract_single_file,
                 transcript_file,
                 config,
-                auto_detect_participants,
             ): transcript_file
             for transcript_file in transcript_files
         }

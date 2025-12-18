@@ -25,7 +25,13 @@ Extract any topic where a decision was discussed, whether resolved or not.
 **Key principle:** Capture the decision POINT, then accurately reflect whether it was resolved.
 
 ## Participants
-{participants_text}
+
+Identify decision-makers from the transcript by looking for:
+- Speaker labels (e.g., "Ryan:", "Ryan Snodgrass  5:12", "[Ryan]")
+- Names mentioned as making decisions, expressing opinions, or giving agreement/disagreement
+- People explicitly referenced as stakeholders in decisions
+
+{participants_hint}
 
 ## Categories
 {categories_text}
@@ -102,6 +108,7 @@ For lower significance (4-5):
 Output ONLY valid JSON with this structure:
 ```json
 {{
+  "participants_detected": ["FirstName1", "FirstName2", "FirstName3"],
   "decisions": [
     {{
       "category": "Category name from list above",
@@ -110,7 +117,7 @@ Output ONLY valid JSON with this structure:
       "title": "Short descriptive title (3-8 words)",
       "description": "Full context about the decision",
       "decision": "What was decided, or 'No decision reached'",
-      "agreements": {example_agreements},
+      "agreements": {{"FirstName1": "Yes", "FirstName2": "Partial", ...}},
       "notes": "Supporting evidence from transcript",
       "meeting_date": "",
       "meeting_reference": ""
@@ -120,13 +127,14 @@ Output ONLY valid JSON with this structure:
 ```
 
 Field requirements:
+- participants_detected: List of first names of all decision-makers found in transcript
 - category: One of the categories listed above
 - significance: 1-5 (1=Critical, 5=Minor)
 - status: "Agreed", "Needs Clarification", or "Unresolved"
 - title: Short descriptive title (3-8 words)
 - description: Full context about the decision
 - decision: What was decided, or "No decision reached"
-- agreements: Object with {participants_text} as keys, values are "Yes", "Partial", or "No"
+- agreements: Object with participant first names as keys, values are "Yes", "Partial", "No", or "Not Present"
 - notes: Supporting evidence from transcript
 - meeting_date: Leave empty (will be filled in)
 - meeting_reference: Leave empty (will be filled in)

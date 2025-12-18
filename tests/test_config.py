@@ -584,15 +584,16 @@ class TestGetJSONSchemaForExtraction:
 
     def test_schema_structure(self) -> None:
         """Test basic schema structure."""
-        schema = get_json_schema_for_extraction(["Alice", "Bob"])
+        schema = get_json_schema_for_extraction()
 
         assert schema["type"] == "object"
         assert "decisions" in schema["properties"]
-        assert schema["required"] == ["decisions"]
+        assert "participants_detected" in schema["properties"]
+        assert set(schema["required"]) == {"participants_detected", "decisions"}
 
     def test_schema_decisions_array(self) -> None:
         """Test decisions array schema."""
-        schema = get_json_schema_for_extraction(["Alice", "Bob"])
+        schema = get_json_schema_for_extraction()
         decisions = schema["properties"]["decisions"]
 
         assert decisions["type"] == "array"
@@ -600,7 +601,7 @@ class TestGetJSONSchemaForExtraction:
 
     def test_schema_decision_properties(self) -> None:
         """Test decision item properties."""
-        schema = get_json_schema_for_extraction(["Alice", "Bob"])
+        schema = get_json_schema_for_extraction()
         decision_item = schema["properties"]["decisions"]["items"]
 
         assert "category" in decision_item["properties"]
@@ -610,7 +611,7 @@ class TestGetJSONSchemaForExtraction:
 
     def test_schema_significance_constraints(self) -> None:
         """Test significance field constraints."""
-        schema = get_json_schema_for_extraction(["Alice"])
+        schema = get_json_schema_for_extraction()
         significance = schema["properties"]["decisions"]["items"]["properties"]["significance"]
 
         assert significance["type"] == "integer"
@@ -619,7 +620,7 @@ class TestGetJSONSchemaForExtraction:
 
     def test_schema_status_enum(self) -> None:
         """Test status field enum values."""
-        schema = get_json_schema_for_extraction(["Alice"])
+        schema = get_json_schema_for_extraction()
         status = schema["properties"]["decisions"]["items"]["properties"]["status"]
 
         assert status["type"] == "string"
@@ -627,21 +628,21 @@ class TestGetJSONSchemaForExtraction:
         assert "Needs Clarification" in status["enum"]
         assert "Unresolved" in status["enum"]
 
-    def test_schema_dynamic_participants(self) -> None:
-        """Test that agreements schema includes all participants."""
-        participants = ["Alice", "Bob", "Carol"]
-        schema = get_json_schema_for_extraction(participants)
+    def test_schema_flexible_agreements(self) -> None:
+        """Test that agreements schema uses additionalProperties for dynamic participants."""
+        schema = get_json_schema_for_extraction()
         agreements = schema["properties"]["decisions"]["items"]["properties"]["agreements"]
 
         assert agreements["type"] == "object"
-        assert set(agreements["properties"].keys()) == set(participants)
-        assert agreements["required"] == participants
-
-        # check each participant has correct enum
-        for name in participants:
-            participant_schema = agreements["properties"][name]
-            assert participant_schema["type"] == "string"
-            assert set(participant_schema["enum"]) == {"Yes", "Partial", "No", "Not Present"}
+        # uses additionalProperties instead of fixed participant names
+        assert "additionalProperties" in agreements
+        assert agreements["additionalProperties"]["type"] == "string"
+        assert set(agreements["additionalProperties"]["enum"]) == {
+            "Yes",
+            "Partial",
+            "No",
+            "Not Present",
+        }
 
 
 @pytest.mark.skip(reason="build_json_extraction_prompt now uses external prompt templates")

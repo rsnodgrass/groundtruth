@@ -59,15 +59,21 @@ class FileExtractionResult(BaseModel):
     metadata: ExtractionMetadata
 
 
-def get_json_schema_for_extraction(participant_names: list[str]) -> dict:
+def get_json_schema_for_extraction() -> dict:
     """
     Generate JSON schema for decision extraction.
 
-    The schema is dynamic based on participant names.
+    The schema allows dynamic participant detection - participants are not
+    required upfront, the LLM discovers them from the transcript.
     """
     return {
         "type": "object",
         "properties": {
+            "participants_detected": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "First names of decision-makers found in transcript",
+            },
             "decisions": {
                 "type": "array",
                 "items": {
@@ -81,8 +87,10 @@ def get_json_schema_for_extraction(participant_names: list[str]) -> dict:
                         "decision": {"type": "string"},
                         "agreements": {
                             "type": "object",
-                            "properties": {name: {"type": "string", "enum": ["Yes", "Partial", "No", "Not Present"]} for name in participant_names},
-                            "required": participant_names,
+                            "additionalProperties": {
+                                "type": "string",
+                                "enum": ["Yes", "Partial", "No", "Not Present"],
+                            },
                         },
                         "notes": {"type": "string"},
                         "meeting_date": {"type": "string"},
@@ -92,7 +100,7 @@ def get_json_schema_for_extraction(participant_names: list[str]) -> dict:
                 },
             },
         },
-        "required": ["decisions"],
+        "required": ["participants_detected", "decisions"],
     }
 
 
@@ -566,10 +574,11 @@ def build_json_extraction_prompt(config: TrackerConfig, transcript: str) -> str:
         for t in (config.types if config.types else DEFAULT_TYPES)
     )
 
-    # build participants section
-    participants = config.participants if config.participants else DEFAULT_PARTICIPANTS
-    participants_text = ", ".join(p.name for p in participants)
-    participant_names = [p.name for p in participants]
+    # build participants hint (from framework if available)
+    participants_hint = ""
+    if config.participants_from_framework and config.participants:
+        names = ", ".join(p.name for p in config.participants)
+        participants_hint = f"**Expected participants from framework:** {names}\nInclude these participants in your output, marking them as 'Not Present' if they don't appear in this transcript. You may also detect additional participants."
 
     # build agreement rules section
     agreement_rules_text = ""
@@ -587,9 +596,6 @@ def build_json_extraction_prompt(config: TrackerConfig, transcript: str) -> str:
     if not agreement_rules_text:
         agreement_rules_text = "Standard agreement rules apply."
 
-    # build example JSON structure for agreements
-    example_agreements = ", ".join(f'"{name}": "Yes"' for name in participant_names)
-
     # build custom prompt section
     custom_prompt_section = ""
     if config.custom_prompt:
@@ -597,11 +603,10 @@ def build_json_extraction_prompt(config: TrackerConfig, transcript: str) -> str:
 
     # format the template with all variables
     prompt = prompt_template.format(
-        participants_text=participants_text,
+        participants_hint=participants_hint,
         categories_text=categories_text,
         types_text=types_text,
         agreement_rules_text=agreement_rules_text,
-        example_agreements=example_agreements,
         custom_prompt_section=custom_prompt_section,
         transcript=transcript,
     )
