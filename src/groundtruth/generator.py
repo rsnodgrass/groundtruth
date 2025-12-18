@@ -16,22 +16,22 @@ from groundtruth.models import DEFAULT_PARTICIPANTS
 HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
 
-# Significance colors (aqua gradient scale)
+# Significance colors (blue gradient: vibrant blue -> almost white)
 SIGNIFICANCE_COLORS = {
-    "1": PatternFill(start_color="073b4c", end_color="073b4c", fill_type="solid"),  # deep aqua
-    "2": PatternFill(start_color="118ab2", end_color="118ab2", fill_type="solid"),  # rich teal
-    "3": PatternFill(start_color="06d6a0", end_color="06d6a0", fill_type="solid"),  # vibrant aqua
-    "4": PatternFill(start_color="ffd166", end_color="ffd166", fill_type="solid"),  # light gold
-    "5": PatternFill(start_color="ef476f", end_color="ef476f", fill_type="solid"),  # soft pink
+    "1": PatternFill(start_color="0d47a1", end_color="0d47a1", fill_type="solid"),  # vibrant dark blue
+    "2": PatternFill(start_color="1976d2", end_color="1976d2", fill_type="solid"),  # medium-dark blue
+    "3": PatternFill(start_color="42a5f5", end_color="42a5f5", fill_type="solid"),  # medium blue
+    "4": PatternFill(start_color="90caf9", end_color="90caf9", fill_type="solid"),  # light blue
+    "5": PatternFill(start_color="e3f2fd", end_color="e3f2fd", fill_type="solid"),  # very light blue
 }
 
-# Significance font colors (white for dark backgrounds)
+# Significance font colors (white for dark backgrounds, black for light)
 SIGNIFICANCE_FONTS = {
     "1": Font(bold=True, color="FFFFFF"),
     "2": Font(bold=True, color="FFFFFF"),
     "3": Font(bold=False, color="000000"),
     "4": Font(bold=False, color="000000"),
-    "5": Font(bold=False, color="FFFFFF"),
+    "5": Font(bold=False, color="000000"),
 }
 
 # Status colors
