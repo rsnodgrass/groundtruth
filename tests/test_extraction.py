@@ -231,7 +231,7 @@ class TestExtractDecisionsFromFolderParallel:
             extract_decisions_from_folder_parallel(
                 tmp_path,
                 sample_config,
-                pattern="*.txt",
+                files_or_pattern="*.txt",
             )
 
     @patch("groundtruth.llm.get_provider")
@@ -358,7 +358,7 @@ class TestExtractDecisionsFromFolderParallel:
         rows = extract_decisions_from_folder_parallel(
             tmp_path,
             sample_config,
-            pattern="*.md",
+            files_or_pattern="*.md",
         )
 
         # should only process 1 file (the .md file)

@@ -617,7 +617,7 @@ def _extract_single_file(
 def extract_decisions_from_folder_parallel(
     folder_path: Path,
     config: TrackerConfig,
-    pattern: str = "*.txt",
+    files_or_pattern: list[Path] | str = "*.txt",
     max_workers: int = 4,
     auto_detect_participants: bool = True,
 ) -> list[list[str]]:
@@ -627,7 +627,7 @@ def extract_decisions_from_folder_parallel(
     Args:
         folder_path: Path to folder containing transcripts
         config: Tracker configuration
-        pattern: Glob pattern for transcript files
+        files_or_pattern: Either a list of file paths or a glob pattern string
         max_workers: Maximum number of parallel workers
         auto_detect_participants: If True, detect participants from transcript if not explicitly set
 
@@ -638,10 +638,14 @@ def extract_decisions_from_folder_parallel(
     metrics.reset()
     folder_start_time = time.time()
 
-    transcript_files = sorted(folder_path.glob(pattern))
+    # accept either a list of files or a glob pattern
+    if isinstance(files_or_pattern, list):
+        transcript_files = sorted(files_or_pattern)
+    else:
+        transcript_files = sorted(folder_path.glob(files_or_pattern))
 
     if not transcript_files:
-        raise ValueError(f"No transcript files found matching {pattern} in {folder_path}")
+        raise ValueError(f"No transcript files found in {folder_path}")
 
     logger.info(f"Found {len(transcript_files)} transcript files (max_workers={max_workers})")
 

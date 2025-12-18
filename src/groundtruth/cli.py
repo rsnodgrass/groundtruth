@@ -20,6 +20,42 @@ from groundtruth.models import DEFAULT_PARTICIPANTS
 
 console = Console()
 
+# supported transcript file extensions (in priority order)
+TRANSCRIPT_EXTENSIONS = [
+    ".txt",   # plain text transcripts
+    ".vtt",   # WebVTT (common video transcript format)
+    ".srt",   # SubRip subtitle format
+    ".md",    # markdown notes
+    ".json",  # JSON transcripts (e.g., from APIs)
+    ".rtf",   # rich text format
+]
+
+
+def find_transcript_files(folder: Path, pattern: str | None = None) -> list[Path]:
+    """
+    Find transcript files in a folder (case-insensitive extension matching).
+
+    Args:
+        folder: Folder to search
+        pattern: Optional glob pattern (e.g., "*.txt"). If None, finds all supported types.
+
+    Returns:
+        Sorted list of transcript file paths
+    """
+    if pattern:
+        # user specified a pattern, use it directly
+        return sorted(folder.glob(pattern))
+
+    # find all files with supported extensions (case-insensitive)
+    files: list[Path] = []
+    for ext in TRANSCRIPT_EXTENSIONS:
+        # match both lowercase and uppercase versions
+        files.extend(folder.glob(f"*{ext}"))
+        files.extend(folder.glob(f"*{ext.upper()}"))
+
+    # deduplicate and sort
+    return sorted(set(files))
+
 
 def get_output_filename(
     input_path: Path,
@@ -415,8 +451,8 @@ def validate(csv_file: Path, deciders: str) -> None:
 @click.option(
     "--pattern",
     type=str,
-    default="*.txt",
-    help="Glob pattern for transcript files (default: *.txt)",
+    default=None,
+    help="Glob pattern for files (default: all supported types: .txt, .vtt, .srt, .md, .json)",
 )
 @click.option(
     "--from-csv",
@@ -446,7 +482,7 @@ def process(
     csv: bool,
     no_date_prefix: bool,
     deciders: str | None,
-    pattern: str,
+    pattern: str | None,
     from_csv: bool,
     framework: tuple[Path, ...],
     no_auto_detect: bool,
@@ -547,7 +583,7 @@ def process(
     console.print(f"[dim]Provider: {tracker_config.model_provider}[/dim]")
 
     # find transcript files
-    transcript_files = sorted(folder.glob(pattern))
+    transcript_files = find_transcript_files(folder, pattern)
 
     if from_date or to_date:
         filtered = []
@@ -573,7 +609,11 @@ def process(
         transcript_files = filtered
 
     if not transcript_files:
-        console.print(f"[yellow]No transcript files found matching {pattern}[/yellow]")
+        ext_list = ", ".join(TRANSCRIPT_EXTENSIONS)
+        if pattern:
+            console.print(f"[yellow]No files found matching {pattern}[/yellow]")
+        else:
+            console.print(f"[yellow]No transcript files found ({ext_list})[/yellow]")
         return
 
     console.print(f"[blue]Found {len(transcript_files)} transcript file(s)[/blue]")
@@ -581,7 +621,7 @@ def process(
     # extract decisions using parallel JSON-based extraction
     auto_detect = not bool(deciders)  # skip detection if deciders explicitly provided
     rows = extract_decisions_from_folder_parallel(
-        folder, tracker_config, pattern,
+        folder, tracker_config, transcript_files,
         max_workers=4,
         auto_detect_participants=auto_detect,
     )
