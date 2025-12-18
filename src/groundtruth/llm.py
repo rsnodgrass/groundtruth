@@ -1,7 +1,5 @@
 """LLM abstraction layer supporting multiple providers via LiteLLM and Claude Code CLI."""
 
-import csv
-import io
 import json
 import logging
 import subprocess
@@ -17,10 +15,8 @@ from groundtruth.config import (
     ExtractionResult,
     ParticipantConfig,
     TrackerConfig,
-    build_extraction_prompt,
     build_json_extraction_prompt,
     decisions_to_csv_rows,
-    get_json_schema_for_extraction,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,7 +42,7 @@ class Metrics:
 
     def log_summary(self):
         total_llm_time = self.participant_detection_time + self.decision_extraction_time
-        logger.info(f"=== PERFORMANCE METRICS ===")
+        logger.info("=== PERFORMANCE METRICS ===")
         logger.info(f"files_processed={self.files_processed}, total_llm_calls={self.llm_calls}")
         logger.info(f"participant_detection: calls={self.participant_detection_calls}, time={self.participant_detection_time:.1f}s")
         logger.info(f"decision_extraction: calls={self.decision_extraction_calls}, time={self.decision_extraction_time:.1f}s")
@@ -89,20 +85,6 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
 
     @abstractmethod
-    def extract_decisions(self, transcript: str, config: TrackerConfig) -> str:
-        """
-        Extract decisions from a transcript.
-
-        Args:
-            transcript: The meeting transcript text
-            config: Tracker configuration with prompts and settings
-
-        Returns:
-            CSV string with extracted decisions
-        """
-        pass
-
-    @abstractmethod
     def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
         """
         Detect participants from a transcript.
@@ -128,34 +110,6 @@ class LiteLLMProvider(LLMProvider):
                    Supports any model LiteLLM supports.
         """
         self.model = model or "claude-sonnet-4-20250514"
-
-    def extract_decisions(self, transcript: str, config: TrackerConfig) -> str:
-        """Extract decisions using LiteLLM."""
-        prompt = build_extraction_prompt(config, transcript)
-
-        try:
-            response = completion(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
-                max_tokens=8192,
-                temperature=0.1,  # low temperature for consistent structured output
-            )
-
-            content = response.choices[0].message.content
-            if content is None:
-                raise ValueError("LLM returned empty response")
-
-            return self._clean_csv_response(content)
-
-        except Exception as e:
-            logger.error("LiteLLM extraction failed", exc_info=e)
-            raise
-
 
     def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
         """Detect participants using LiteLLM."""
@@ -212,22 +166,6 @@ class LiteLLMProvider(LLMProvider):
             logger.error(f"Failed to parse participant detection response: {e}")
             return []
 
-    def _clean_csv_response(self, content: str) -> str:
-        """Clean LLM response to extract valid CSV."""
-        # remove markdown code blocks if present
-        content = content.strip()
-
-        if content.startswith("```csv"):
-            content = content[6:]
-        elif content.startswith("```"):
-            content = content[3:]
-
-        if content.endswith("```"):
-            content = content[:-3]
-
-        return content.strip()
-
-
 class ClaudeCodeProvider(LLMProvider):
     """Provider using Claude Code CLI as the model."""
 
@@ -239,47 +177,6 @@ class ClaudeCodeProvider(LLMProvider):
             claude_code_path: Path to claude CLI executable (default: "claude")
         """
         self.claude_code_path = claude_code_path
-
-    def extract_decisions(self, transcript: str, config: TrackerConfig) -> str:
-        """Extract decisions using Claude Code CLI."""
-        prompt = build_extraction_prompt(config, transcript)
-        prompt_len = len(prompt)
-        logger.info(f"Starting decision extraction: prompt_length={prompt_len} chars")
-
-        try:
-            start_time = time.time()
-            # use stdin for large prompts to avoid CLI argument length limits
-            result = subprocess.run(
-                [self.claude_code_path, "--print"],
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout
-            )
-            elapsed = time.time() - start_time
-
-            metrics.llm_calls += 1
-            metrics.decision_extraction_calls += 1
-            metrics.decision_extraction_time += elapsed
-            logger.info(f"Decision extraction completed: elapsed={elapsed:.1f}s, response_length={len(result.stdout)} chars")
-
-            if result.returncode != 0:
-                logger.error(f"Claude Code CLI failed: {result.stderr}")
-                raise RuntimeError(f"Claude Code CLI exited with code {result.returncode}")
-
-            return self._clean_csv_response(result.stdout)
-
-        except subprocess.TimeoutExpired as e:
-            logger.error("Claude Code CLI timed out")
-            raise RuntimeError("Claude Code CLI timed out after 5 minutes") from e
-        except FileNotFoundError as e:
-            logger.error(f"Claude Code CLI not found at: {self.claude_code_path}")
-            raise RuntimeError(
-                "Claude Code CLI not found. Install it or specify path with --claude-code-path"
-            ) from e
-        except Exception as e:
-            logger.error("Claude Code extraction failed", exc_info=e)
-            raise
 
     def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
         """Detect participants using Claude Code CLI."""
@@ -457,51 +354,6 @@ class ClaudeCodeProvider(LLMProvider):
             logger.error(f"Failed to parse participant detection response: {e}")
             return []
 
-    def _clean_csv_response(self, content: str) -> str:
-        """Clean CLI response to extract valid CSV."""
-        content = content.strip()
-
-        # log raw response for debugging
-        logger.debug(f"Raw Claude Code response (first 500 chars): {content[:500]}")
-
-        # remove markdown code blocks - handle various formats
-        lines = content.split("\n")
-        cleaned_lines = []
-        in_code_block = False
-
-        for line in lines:
-            if line.strip().startswith("```"):
-                in_code_block = not in_code_block
-                continue
-            if not in_code_block or (in_code_block and "," in line):
-                cleaned_lines.append(line)
-
-        content = "\n".join(cleaned_lines)
-
-        # find the CSV header line - try multiple patterns
-        lines = content.split("\n")
-        csv_start = -1
-        header_patterns = ["Category,", "category,", "\"Category\""]
-
-        for i, line in enumerate(lines):
-            for pattern in header_patterns:
-                if pattern in line and "," in line:
-                    # verify it looks like a CSV header with multiple columns
-                    if line.count(",") >= 5:
-                        csv_start = i
-                        break
-            if csv_start >= 0:
-                break
-
-        if csv_start >= 0:
-            content = "\n".join(lines[csv_start:])
-            logger.debug(f"Found CSV starting at line {csv_start}")
-        else:
-            logger.warning(f"Could not find CSV header in response. First line: {lines[0] if lines else 'empty'}")
-
-        return content.strip()
-
-
 def get_provider(config: TrackerConfig) -> LLMProvider:
     """
     Get the appropriate LLM provider based on configuration.
@@ -586,158 +438,6 @@ def ensure_participants(
     return config
 
 
-def parse_csv_response(csv_content: str, config: TrackerConfig) -> list[list[str]]:
-    """
-    Parse CSV response from LLM into rows.
-
-    Args:
-        csv_content: CSV string from LLM
-        config: Tracker configuration
-
-    Returns:
-        List of rows (including header)
-    """
-    reader = csv.reader(io.StringIO(csv_content))
-    rows = list(reader)
-
-    if not rows:
-        raise ValueError("Empty CSV response from LLM")
-
-    # validate header has minimum expected columns
-    header = rows[0]
-    min_cols = 6 + len(config.participant_names)  # base cols + agreed cols
-    if len(header) < min_cols:
-        raise ValueError(
-            f"Invalid CSV header: expected at least {min_cols} columns, got {len(header)}"
-        )
-
-    return rows
-
-
-def extract_decisions_from_transcript(
-    transcript_path: Path,
-    config: TrackerConfig,
-    meeting_date: str | None = None,
-    auto_detect_participants: bool = True,
-) -> list[list[str]]:
-    """
-    Extract decisions from a transcript file.
-
-    Args:
-        transcript_path: Path to transcript file
-        config: Tracker configuration
-        meeting_date: Optional meeting date (YYYY-MM-DD), extracted from filename if not provided
-        auto_detect_participants: If True, detect participants from transcript if not explicitly set
-
-    Returns:
-        List of CSV rows (including header)
-    """
-    file_start_time = time.time()
-
-    # read transcript
-    read_start = time.time()
-    with open(transcript_path, encoding="utf-8") as f:
-        transcript = f.read()
-    metrics.file_read_time += time.time() - read_start
-    metrics.total_transcript_chars += len(transcript)
-    logger.info(f"Read transcript: {transcript_path.name}, length={len(transcript)} chars")
-
-    # extract date from filename if not provided
-    if meeting_date is None:
-        # try to extract YYYY-MM-DD from filename
-        stem = transcript_path.stem
-        for part in stem.split("-"):
-            if len(part) == 4 and part.isdigit():
-                # found year, try to get full date
-                idx = stem.find(part)
-                if idx >= 0 and len(stem) >= idx + 10:
-                    potential_date = stem[idx : idx + 10]
-                    if len(potential_date.split("-")) == 3:
-                        meeting_date = potential_date
-                        break
-
-    # step 1: ensure we have participants (detect if needed)
-    if auto_detect_participants:
-        config = ensure_participants(transcript, config)
-
-    # step 2: get provider and extract decisions
-    provider = get_provider(config)
-    csv_content = provider.extract_decisions(transcript, config)
-
-    # parse response
-    parse_start = time.time()
-    rows = parse_csv_response(csv_content, config)
-    metrics.csv_parse_time += time.time() - parse_start
-
-    # add meeting reference to rows if not present
-    for row in rows[1:]:  # skip header
-        # meeting reference is the last column
-        if len(row) > 0:
-            # ensure meeting date is set
-            date_col_idx = 7 + len(config.participant_names)
-            if len(row) > date_col_idx and not row[date_col_idx] and meeting_date:
-                row[date_col_idx] = meeting_date
-
-            # ensure meeting reference is set
-            ref_col_idx = date_col_idx + 2
-            if len(row) > ref_col_idx and not row[ref_col_idx]:
-                row[ref_col_idx] = transcript_path.name
-
-    metrics.files_processed += 1
-    file_elapsed = time.time() - file_start_time
-    logger.info(f"Completed {transcript_path.name}: total_time={file_elapsed:.1f}s, decisions={len(rows)-1}")
-
-    return rows
-
-
-def extract_decisions_from_folder(
-    folder_path: Path,
-    config: TrackerConfig,
-    pattern: str = "*.txt",
-) -> list[list[str]]:
-    """
-    Extract decisions from all transcripts in a folder.
-
-    Args:
-        folder_path: Path to folder containing transcripts
-        config: Tracker configuration
-        pattern: Glob pattern for transcript files
-
-    Returns:
-        Merged list of CSV rows (single header, all data rows)
-    """
-    # reset metrics for this batch
-    metrics.reset()
-    folder_start_time = time.time()
-
-    transcript_files = sorted(folder_path.glob(pattern))
-
-    if not transcript_files:
-        raise ValueError(f"No transcript files found matching {pattern} in {folder_path}")
-
-    logger.info(f"Found {len(transcript_files)} transcript files to process")
-    all_rows: list[list[str]] = []
-    header: list[str] | None = None
-
-    for i, transcript_file in enumerate(transcript_files):
-        logger.info(f"Processing ({i+1}/{len(transcript_files)}): {transcript_file.name}")
-        rows = extract_decisions_from_transcript(transcript_file, config)
-
-        if header is None:
-            header = rows[0]
-            all_rows.append(header)
-
-        # add data rows (skip header)
-        all_rows.extend(rows[1:])
-
-    # log final metrics
-    folder_elapsed = time.time() - folder_start_time
-    logger.info(f"Folder processing complete: total_time={folder_elapsed:.1f}s, total_decisions={len(all_rows)-1}")
-    metrics.log_summary()
-
-    return all_rows
-
-
 def extract_decisions_from_transcript_json(
     transcript_path: Path,
     config: TrackerConfig,
@@ -785,34 +485,13 @@ def extract_decisions_from_transcript_json(
     # step 2: get provider and extract decisions using JSON
     provider = get_provider(config)
 
-    # use JSON extraction if provider supports it
-    if hasattr(provider, "extract_decisions_json"):
-        result = provider.extract_decisions_json(transcript, config)
-    else:
-        # fallback to CSV-based extraction and convert
-        csv_content = provider.extract_decisions(transcript, config)
-        rows = parse_csv_response(csv_content, config)
-        # convert CSV rows to Decision objects (simplified fallback)
-        decisions = []
-        participant_names = config.participant_names
-        for row in rows[1:]:  # skip header
-            if len(row) >= 6 + len(participant_names):
-                agreements = {}
-                for i, name in enumerate(participant_names):
-                    agreements[name] = row[6 + i] if 6 + i < len(row) else "No"
-                decisions.append(Decision(
-                    category=row[0],
-                    significance=int(row[1]) if row[1].isdigit() else 3,
-                    status=row[2],
-                    title=row[3],
-                    description=row[4],
-                    decision=row[5],
-                    agreements=agreements,
-                    notes=row[6 + len(participant_names)] if len(row) > 6 + len(participant_names) else "",
-                    meeting_date=meeting_date or "",
-                    meeting_reference=transcript_path.name,
-                ))
-        result = ExtractionResult(decisions=decisions, participants_detected=participant_names)
+    # use JSON extraction (required - CSV extraction has been removed)
+    if not hasattr(provider, "extract_decisions_json"):
+        raise NotImplementedError(
+            f"Provider {type(provider).__name__} does not support JSON extraction. "
+            "Use Claude Code (model_provider: claude-code) for decision extraction."
+        )
+    result = provider.extract_decisions_json(transcript, config)
 
     # fill in meeting date and reference for all decisions
     for decision in result.decisions:

@@ -1,6 +1,5 @@
 """Configuration management for Groundtruth with customizable prompts."""
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -9,14 +8,6 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from groundtruth.config import ParticipantConfig
-
-
-def _build_csv_header_line(participants: list["ParticipantConfig"]) -> str:
-    """Build CSV header line for prompts."""
-    agreed_cols = ",".join(f"{p.name} Agreed" for p in participants)
-    base = "Category,Significance,Status,Title,Description,Decision"
-    trailing = "Notes,Meeting Date,Meeting Reference"
-    return f"{base},{agreed_cols},{trailing}"
 
 
 # JSON intermediate format models
@@ -492,104 +483,6 @@ def save_config(config: TrackerConfig, config_path: Path) -> None:
 
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-
-def build_extraction_prompt(config: TrackerConfig, transcript: str) -> str:
-    """Build the full extraction prompt from config and transcript."""
-    # build category section
-    categories_text = "\n".join(
-        f"- **{c.name}**: {c.description}"
-        for c in (config.categories if config.categories else DEFAULT_CATEGORIES)
-    )
-
-    # build types section
-    types_text = "\n".join(
-        f"- **{t.name}**: {t.description}"
-        for t in (config.types if config.types else DEFAULT_TYPES)
-    )
-
-    # build participants section
-    participants = config.participants if config.participants else DEFAULT_PARTICIPANTS
-    participants_text = ", ".join(p.name for p in participants)
-
-    # build agreement rules section
-    agreement_rules_text = ""
-    if config.agreement_rules:
-        rules = []
-        for key, rule in config.agreement_rules.items():
-            if rule.requires_all:
-                all_names = ", ".join(rule.requires_all)
-                rules.append(f"- **{key}**: Requires agreement from ALL of: {all_names}")
-            if rule.requires_any:
-                any_names = ", ".join(rule.requires_any)
-                rules.append(f"- **{key}**: Requires agreement from AT LEAST ONE of: {any_names}")
-        agreement_rules_text = "\n".join(rules)
-
-    prompt = f"""Extract decisions from this meeting transcript and output as CSV.
-
-## Participants
-{participants_text}
-
-## Categories
-{categories_text}
-
-## Types
-{types_text}
-
-## Agreement Rules
-{agreement_rules_text if agreement_rules_text else "Standard agreement rules apply."}
-
-## Agreement Standards
-
-**Be conservative - default to "No" or "Partial" unless agreement is explicit.**
-
-For Significance 1-2 (Critical/Extremely Important):
-- ALL parties must explicitly acknowledge the exact decision
-- Any ambiguity = No
-- "Parking" a topic = No
-- Silence = No
-
-For Significance 3 (Important):
-- ANY hint of misalignment = Partial or No
-- Different terminology = Partial
-- Unanswered clarifying questions = Partial
-- Confusion at any point = Partial
-
-For Significance 4 (Moderate):
-- Similar to 3 but slightly relaxed
-- Minor confusion that seemed resolved = Yes
-
-For Significance 5 (Same Page):
-- General alignment sufficient
-- Only mark No/Partial if explicit disagreement
-
-## Output Format
-
-Output ONLY valid CSV with these columns (in this exact order):
-{_build_csv_header_line(participants)}
-
-- Category: One of the categories listed above
-- Significance: 1-5 (1=Critical, 5=Minor)
-- Status: Agreed / Needs Clarification / Unresolved
-- Title: Short descriptive title (3-8 words)
-- Description: Full context about the decision
-- Decision: What was decided, or "No decision reached"
-- [Person] Agreed: Yes / Partial / No for each participant
-- Notes: Supporting evidence from transcript
-- Meeting Date: YYYY-MM-DD format
-- Meeting Reference: Source transcript filename
-
-Sort by Category (alphabetically), then by Significance (1 first).
-
-{f"## Additional Instructions{chr(10)}{config.custom_prompt}" if config.custom_prompt else ""}
-
-## Transcript
-
-{transcript}
-
-Output the CSV now (header row first, then data rows):"""
-
-    return prompt
 
 
 def build_json_extraction_prompt(config: TrackerConfig, transcript: str) -> str:

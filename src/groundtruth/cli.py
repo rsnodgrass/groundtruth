@@ -161,8 +161,8 @@ def extract(
 
         groundtruth extract meeting.txt --csv --output-name "weekly-sync"
     """
-    from groundtruth.config import ParticipantConfig
-    from groundtruth.llm import extract_decisions_from_transcript
+    from groundtruth.config import ParticipantConfig, decisions_to_csv_rows
+    from groundtruth.llm import extract_decisions_from_transcript_json
 
     # load config
     tracker_config = load_config(config)
@@ -192,13 +192,16 @@ def extract(
     console.print(f"[blue]Extracting decisions from:[/blue] {transcript}")
     console.print(f"[dim]Provider: {tracker_config.model_provider}[/dim]")
 
-    # extract decisions (with auto-detection unless disabled)
-    rows = extract_decisions_from_transcript(
+    # extract decisions using JSON-based extraction (with auto-detection unless disabled)
+    result = extract_decisions_from_transcript_json(
         transcript,
         tracker_config,
         auto_detect_participants=not no_auto_detect,
     )
-    console.print(f"[dim]Participants: {', '.join(tracker_config.participant_names)}[/dim]")
+    # convert to CSV rows for output generation
+    participant_names = tracker_config.participant_names or result.participants_detected
+    rows = decisions_to_csv_rows(result.decisions, participant_names)
+    console.print(f"[dim]Participants: {', '.join(participant_names)}[/dim]")
 
     # determine output path
     if output:
@@ -464,7 +467,7 @@ def process(
         groundtruth process meetings/ --from-csv
     """
     from groundtruth.config import ParticipantConfig
-    from groundtruth.llm import extract_decisions_from_folder
+    from groundtruth.llm import extract_decisions_from_folder_parallel
 
     console.print(f"[blue]Scanning:[/blue] {folder}")
 
@@ -572,8 +575,13 @@ def process(
 
     console.print(f"[blue]Found {len(transcript_files)} transcript file(s)[/blue]")
 
-    # extract decisions
-    rows = extract_decisions_from_folder(folder, tracker_config, pattern)
+    # extract decisions using parallel JSON-based extraction
+    auto_detect = not bool(deciders)  # skip detection if deciders explicitly provided
+    rows = extract_decisions_from_folder_parallel(
+        folder, tracker_config, pattern,
+        max_workers=4,
+        auto_detect_participants=auto_detect,
+    )
 
     # determine output path
     if output:
