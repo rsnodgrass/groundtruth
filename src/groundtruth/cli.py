@@ -30,6 +30,54 @@ TRANSCRIPT_EXTENSIONS = [
     ".rtf",   # rich text format
 ]
 
+# files to ignore when scanning for transcripts (case-insensitive stem matching)
+IGNORED_FILES = [
+    "readme",
+    "readme.txt",
+    "readme.md",
+    "license",
+    "license.txt",
+    "license.md",
+    "changelog",
+    "changelog.md",
+    "contributing",
+    "contributing.md",
+    "todo",
+    "todo.txt",
+    "todo.md",
+    "notes",
+    "notes.txt",
+    "notes.md",
+    ".groundtruth",  # manifest file
+    "package",       # package.json
+    "tsconfig",      # tsconfig.json
+    "pyproject",     # pyproject.toml adjacent files
+]
+
+
+def _should_ignore_file(path: Path) -> bool:
+    """Check if a file should be ignored based on name."""
+    name_lower = path.name.lower()
+    stem_lower = path.stem.lower()
+
+    # check exact name match
+    if name_lower in IGNORED_FILES:
+        return True
+
+    # check stem match (e.g., "README" matches "README.txt")
+    if stem_lower in IGNORED_FILES:
+        return True
+
+    # ignore hidden files
+    if path.name.startswith("."):
+        return True
+
+    # ignore files starting with underscore (often temp/internal)
+    if path.name.startswith("_"):
+        return True
+
+    return False
+
 
 def find_transcript_files(folder: Path, pattern: str | None = None) -> list[Path]:
     """
@@ -40,21 +88,22 @@ def find_transcript_files(folder: Path, pattern: str | None = None) -> list[Path
         pattern: Optional glob pattern (e.g., "*.txt"). If None, finds all supported types.
 
     Returns:
-        Sorted list of transcript file paths
+        Sorted list of transcript file paths (excluding ignored files)
     """
     if pattern:
         # user specified a pattern, use it directly
-        return sorted(folder.glob(pattern))
+        files = list(folder.glob(pattern))
+    else:
+        # find all files with supported extensions (case-insensitive)
+        files = []
+        for ext in TRANSCRIPT_EXTENSIONS:
+            # match both lowercase and uppercase versions
+            files.extend(folder.glob(f"*{ext}"))
+            files.extend(folder.glob(f"*{ext.upper()}"))
 
-    # find all files with supported extensions (case-insensitive)
-    files: list[Path] = []
-    for ext in TRANSCRIPT_EXTENSIONS:
-        # match both lowercase and uppercase versions
-        files.extend(folder.glob(f"*{ext}"))
-        files.extend(folder.glob(f"*{ext.upper()}"))
-
-    # deduplicate and sort
-    return sorted(set(files))
+    # filter out ignored files and deduplicate
+    filtered = [f for f in set(files) if not _should_ignore_file(f)]
+    return sorted(filtered)
 
 
 def get_output_filename(
