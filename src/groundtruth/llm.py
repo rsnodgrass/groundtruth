@@ -23,6 +23,12 @@ from groundtruth.prompts import get_participant_detection_prompt
 logger = logging.getLogger(__name__)
 
 
+# retry configuration
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_BACKOFF_BASE = 1.0  # seconds
+MIN_RESPONSE_LENGTH = 10  # minimum chars for a valid response
+
+
 # metrics tracking
 class Metrics:
     """Simple metrics collector for performance analysis."""
@@ -40,14 +46,19 @@ class Metrics:
         self.csv_parse_time = 0.0
         self.files_processed = 0
         self.total_transcript_chars = 0
+        self.retry_count = 0
 
     def log_summary(self):
         total_llm_time = self.participant_detection_time + self.decision_extraction_time
         logger.info("=== PERFORMANCE METRICS ===")
-        logger.info(f"files_processed={self.files_processed}, total_llm_calls={self.llm_calls}")
-        logger.info(f"participant_detection: calls={self.participant_detection_calls}, time={self.participant_detection_time:.1f}s")
-        logger.info(f"decision_extraction: calls={self.decision_extraction_calls}, time={self.decision_extraction_time:.1f}s")
-        logger.info(f"total_llm_time={total_llm_time:.1f}s, file_read_time={self.file_read_time:.1f}s, csv_parse_time={self.csv_parse_time:.1f}s")
+        logger.info(f"files={self.files_processed}, llm_calls={self.llm_calls}, "
+                    f"retries={self.retry_count}")
+        logger.info(f"participant_detection: calls={self.participant_detection_calls}, "
+                    f"time={self.participant_detection_time:.1f}s")
+        logger.info(f"decision_extraction: calls={self.decision_extraction_calls}, "
+                    f"time={self.decision_extraction_time:.1f}s")
+        logger.info(f"total_llm={total_llm_time:.1f}s, file_read={self.file_read_time:.1f}s, "
+                    f"csv_parse={self.csv_parse_time:.1f}s")
         logger.info(f"total_transcript_chars={self.total_transcript_chars}")
         if self.files_processed > 0:
             avg_time = total_llm_time / self.files_processed
@@ -55,6 +66,71 @@ class Metrics:
 
 
 metrics = Metrics()
+
+
+class EmptyResponseError(Exception):
+    """Raised when LLM returns an empty or invalid response."""
+
+    pass
+
+
+def validate_response(content: str, min_length: int = MIN_RESPONSE_LENGTH) -> bool:
+    """Check if response content is valid (non-empty with minimum length)."""
+    if not content:
+        return False
+    stripped = content.strip()
+    return len(stripped) >= min_length
+
+
+def retry_with_backoff(
+    func,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    backoff_base: float = DEFAULT_BACKOFF_BASE,
+    operation_name: str = "LLM call",
+):
+    """
+    Retry a function with exponential backoff.
+
+    Args:
+        func: Callable that returns a result or raises an exception
+        max_retries: Maximum number of retry attempts
+        backoff_base: Base delay in seconds (doubles each retry: 1s, 2s, 4s)
+        operation_name: Name of operation for logging
+
+    Returns:
+        Result from successful function call
+
+    Raises:
+        Last exception if all retries fail
+    """
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            result = func()
+
+            # validate the result if it's a string
+            if isinstance(result, str) and not validate_response(result):
+                raise EmptyResponseError(f"Empty or invalid response (length={len(result)})")
+
+            return result
+
+        except (EmptyResponseError, subprocess.TimeoutExpired) as e:
+            last_exception = e
+            if attempt < max_retries:
+                delay = backoff_base * (2 ** attempt)
+                metrics.retry_count += 1
+                logger.warning(f"{operation_name} attempt {attempt + 1}/{max_retries + 1} failed: "
+                               f"{e}. Retry in {delay:.1f}s...")
+                time.sleep(delay)
+            else:
+                logger.error(f"{operation_name} failed after {max_retries + 1} attempts: {e}")
+
+        except Exception:
+            # don't retry on other exceptions (e.g., FileNotFoundError, auth errors)
+            raise
+
+    raise last_exception or RuntimeError(f"{operation_name} failed after retries")
 
 
 class LLMProvider(ABC):
@@ -156,17 +232,16 @@ class ClaudeCodeProvider(LLMProvider):
         self.claude_code_path = claude_code_path
 
     def detect_participants(self, transcript: str) -> list[ParticipantConfig]:
-        """Detect participants using Claude Code CLI."""
+        """Detect participants using Claude Code CLI with retry."""
         # use first ~4000 chars of transcript for detection
         sample = transcript[:4000] if len(transcript) > 4000 else transcript
         prompt_template = get_participant_detection_prompt()
         prompt = prompt_template.format(transcript=sample)
         logger.info(f"Starting participant detection: sample_length={len(sample)} chars")
 
-        try:
+        def _call_cli() -> str:
+            """Inner function for retry wrapper - returns raw response."""
             start_time = time.time()
-            # use stdin to avoid CLI argument length limits
-            # use --output-format json to get consistent envelope format
             result = subprocess.run(
                 [self.claude_code_path, "--print", "--output-format", "json"],
                 input=prompt,
@@ -179,20 +254,26 @@ class ClaudeCodeProvider(LLMProvider):
             metrics.llm_calls += 1
             metrics.participant_detection_calls += 1
             metrics.participant_detection_time += elapsed
-            logger.info(f"Participant detection completed: elapsed={elapsed:.1f}s")
+            logger.info(f"Participant detection: {elapsed:.1f}s, {len(result.stdout)} chars")
 
             if result.returncode != 0:
-                logger.error(f"Claude Code CLI failed for participant detection: {result.stderr}")
-                return []
+                raise EmptyResponseError(f"CLI failed (code {result.returncode}): {result.stderr}")
 
-            return self._parse_participant_response(result.stdout)
+            return result.stdout
+
+        try:
+            response = retry_with_backoff(
+                _call_cli,
+                operation_name="Participant detection",
+            )
+            return self._parse_participant_response(response)
 
         except Exception as e:
             logger.error("Participant detection via Claude Code failed", exc_info=e)
             return []
 
     def extract_decisions_json(self, transcript: str, config: TrackerConfig) -> ExtractionResult:
-        """Extract decisions using Claude Code CLI with JSON output."""
+        """Extract decisions using Claude Code CLI with JSON output and retry."""
         prompt = build_json_extraction_prompt(config, transcript)
         prompt_len = len(prompt)
         logger.info(f"Starting JSON decision extraction: prompt_length={prompt_len} chars")
@@ -200,10 +281,9 @@ class ClaudeCodeProvider(LLMProvider):
         # get participant names for parsing
         participant_names = config.participant_names or ["Ryan", "Ajit", "Milkana"]
 
-        try:
+        def _call_cli() -> str:
+            """Inner function for retry wrapper - returns raw response."""
             start_time = time.time()
-            # use stdin for large prompts, request JSON output format
-            # note: --json-schema causes empty results, so just use --output-format json
             result = subprocess.run(
                 [
                     self.claude_code_path,
@@ -220,17 +300,20 @@ class ClaudeCodeProvider(LLMProvider):
             metrics.llm_calls += 1
             metrics.decision_extraction_calls += 1
             metrics.decision_extraction_time += elapsed
-            logger.info(f"JSON decision extraction completed: elapsed={elapsed:.1f}s, response_length={len(result.stdout)} chars")
+            logger.info(f"Decision extraction: {elapsed:.1f}s, {len(result.stdout)} chars")
 
             if result.returncode != 0:
-                logger.error(f"Claude Code CLI failed: {result.stderr}")
-                raise RuntimeError(f"Claude Code CLI exited with code {result.returncode}")
+                raise EmptyResponseError(f"CLI failed (code {result.returncode}): {result.stderr}")
 
-            return self._parse_json_extraction_response(result.stdout, participant_names)
+            return result.stdout
 
-        except subprocess.TimeoutExpired as e:
-            logger.error("Claude Code CLI timed out")
-            raise RuntimeError("Claude Code CLI timed out after 5 minutes") from e
+        try:
+            response = retry_with_backoff(
+                _call_cli,
+                operation_name="Decision extraction",
+            )
+            return self._parse_json_extraction_response(response, participant_names)
+
         except FileNotFoundError as e:
             logger.error(f"Claude Code CLI not found at: {self.claude_code_path}")
             raise RuntimeError(
@@ -240,7 +323,9 @@ class ClaudeCodeProvider(LLMProvider):
             logger.error("Claude Code JSON extraction failed", exc_info=e)
             raise
 
-    def _parse_json_extraction_response(self, content: str, participant_names: list[str]) -> ExtractionResult:
+    def _parse_json_extraction_response(
+        self, content: str, participant_names: list[str]
+    ) -> ExtractionResult:
         """Parse JSON response from decision extraction."""
         content = content.strip()
         logger.debug(f"Raw JSON response (first 200 chars): {content[:200]}")
@@ -500,7 +585,8 @@ def extract_decisions_from_transcript_json(
 
     metrics.files_processed += 1
     file_elapsed = time.time() - file_start_time
-    logger.info(f"Completed {transcript_path.name}: total_time={file_elapsed:.1f}s, decisions={len(result.decisions)}")
+    logger.info(f"Completed {transcript_path.name}: {file_elapsed:.1f}s, "
+                f"{len(result.decisions)} decisions")
 
     return result
 
@@ -557,7 +643,7 @@ def extract_decisions_from_folder_parallel(
     if not transcript_files:
         raise ValueError(f"No transcript files found matching {pattern} in {folder_path}")
 
-    logger.info(f"Found {len(transcript_files)} transcript files to process in parallel (max_workers={max_workers})")
+    logger.info(f"Found {len(transcript_files)} transcript files (max_workers={max_workers})")
 
     # collect all decisions from all files
     all_decisions: list[Decision] = []
@@ -599,13 +685,17 @@ def extract_decisions_from_folder_parallel(
 
     # convert decisions to CSV rows
     # use participant names from config if available, otherwise from detected
-    participant_names = config.participant_names if config.participant_names else sorted(all_participants)
+    participant_names = (
+        config.participant_names if config.participant_names else sorted(all_participants)
+    )
     rows = decisions_to_csv_rows(all_decisions, participant_names)
 
     # log final metrics
     folder_elapsed = time.time() - folder_start_time
     successful_files = len(transcript_files) - len(failed_files)
-    logger.info(f"Parallel folder processing complete: total_time={folder_elapsed:.1f}s, files={successful_files}/{len(transcript_files)}, total_decisions={len(all_decisions)}")
+    total_files = len(transcript_files)
+    logger.info(f"Folder complete: {folder_elapsed:.1f}s, files={successful_files}/{total_files}, "
+                f"decisions={len(all_decisions)}")
     metrics.log_summary()
 
     return rows

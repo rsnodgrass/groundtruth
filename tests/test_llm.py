@@ -14,6 +14,7 @@ from groundtruth.config import (
 )
 from groundtruth.llm import (
     ClaudeCodeProvider,
+    EmptyResponseError,
     LiteLLMProvider,
     Metrics,
     detect_participants_from_transcript,
@@ -60,8 +61,8 @@ class TestMetrics:
 
         # check that summary was logged
         assert "PERFORMANCE METRICS" in caplog.text
-        assert "files_processed=2" in caplog.text
-        assert "total_llm_calls=4" in caplog.text
+        assert "files=2" in caplog.text
+        assert "llm_calls=4" in caplog.text
 
 
 class TestLiteLLMProvider:
@@ -511,15 +512,17 @@ class TestClaudeCodeProvider:
         assert "--output-format" in call_args.args[0]
         assert "json" in call_args.args[0]
 
+    @patch("groundtruth.llm.time.sleep")
     @patch("groundtruth.config.get_decision_extraction_prompt")
     @patch("groundtruth.llm.subprocess.run")
     def test_extract_decisions_json_cli_error(
         self,
         mock_run: Mock,
         mock_get_prompt: Mock,
+        mock_sleep: Mock,
         sample_config: TrackerConfig,
     ) -> None:
-        """Test handling of CLI error in decision extraction."""
+        """Test handling of CLI error in decision extraction with retry."""
         provider = ClaudeCodeProvider()
         mock_get_prompt.return_value = "Extract decisions from: {transcript}"
 
@@ -528,24 +531,34 @@ class TestClaudeCodeProvider:
         mock_result.stderr = "CLI error"
         mock_run.return_value = mock_result
 
-        with pytest.raises(RuntimeError, match="exited with code"):
+        # should raise EmptyResponseError after all retries fail
+        with pytest.raises(EmptyResponseError, match="CLI failed"):
             provider.extract_decisions_json("Test", sample_config)
 
+        # verify retries happened (4 total calls: 1 initial + 3 retries)
+        assert mock_run.call_count == 4
+
+    @patch("groundtruth.llm.time.sleep")
     @patch("groundtruth.config.get_decision_extraction_prompt")
     @patch("groundtruth.llm.subprocess.run")
     def test_extract_decisions_json_timeout(
         self,
         mock_run: Mock,
         mock_get_prompt: Mock,
+        mock_sleep: Mock,
         sample_config: TrackerConfig,
     ) -> None:
-        """Test handling of timeout in decision extraction."""
+        """Test handling of timeout in decision extraction with retry."""
         provider = ClaudeCodeProvider()
         mock_get_prompt.return_value = "Extract decisions from: {transcript}"
         mock_run.side_effect = subprocess.TimeoutExpired("claude", 300)
 
-        with pytest.raises(RuntimeError, match="timed out"):
+        # should raise TimeoutExpired after all retries fail
+        with pytest.raises(subprocess.TimeoutExpired):
             provider.extract_decisions_json("Test", sample_config)
+
+        # verify retries happened
+        assert mock_run.call_count == 4
 
     @patch("groundtruth.config.get_decision_extraction_prompt")
     @patch("groundtruth.llm.subprocess.run")

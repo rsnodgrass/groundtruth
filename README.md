@@ -20,20 +20,11 @@ flowchart LR
 
 ---
 
-## Quick Start
+## Example Output
 
-```bash
-# Install
-pip install groundtruth
+[![Decisions Tab Screenshot](docs/images/decisions-tab-screenshot.png)](https://github.com/rsnodgrass/groundtruth/raw/refs/heads/main/examples/sample-output-Decisions.xlsx)
 
-# Extract decisions from a transcript
-groundtruth extract meeting-transcript.txt
-
-# Process a folder of meetings
-groundtruth process meetings/2025-12-15/
-```
-
-**[Full installation guide →](docs/getting-started.md)**
+*Click to download the sample Excel file • See [`examples/`](examples/) for sample transcripts*
 
 ---
 
@@ -104,6 +95,23 @@ groundtruth process board-meetings/ --framework board.md --output board-decision
 
 ---
 
+## Quick Start
+
+```bash
+# Install
+pip install groundtruth
+
+# Extract decisions from a transcript
+groundtruth extract meeting-transcript.txt
+
+# Process a folder of meetings
+groundtruth process meetings/2025-12-15/
+```
+
+**[Full installation guide →](docs/getting-started.md)**
+
+---
+
 ## Documentation
 
 | Guide | Description |
@@ -123,23 +131,6 @@ groundtruth process board-meetings/ --framework board.md --output board-decision
 - **Speaker attribution in transcripts** — Most transcription services ([Otter.ai](https://otter.ai/referrals/LL5QS7E8), Rev, Fireflies, Descript) provide this automatically
 - **Claude Code** — Recommended for decision extraction (if you use anything else you are on your own to figure out how to make this work!). Install from https://claude.ai/code
 - **Python 3.12+** — Needed for actually running the actual Groundtruth tool
-
----
-
-## Example Output
-
-[![Decisions Tab Screenshot](docs/images/decisions-tab-screenshot.png)](examples/sample-output-Decisions.xlsx)
-
-*Click to download the sample Excel file*
-
-Every decision includes:
-- **Category & Significance** (1-5 scale, color-coded)
-- **Full description** with context from the conversation
-- **Agreement status** (Agreed / Needs Clarification / Unresolved)
-- **Per-person agreement** (Yes / Partial / No)
-- **Notes** with evidence from transcript
-
-See [`examples/`](examples/) for sample transcripts and generated reports.
 
 ---
 
